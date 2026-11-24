@@ -1,557 +1,688 @@
-<!DOCTYPE html>
+cat <<'EOF' > write_index.py
+from pathlib import Path
+
+html = """<!doctype html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Laboratorio QA, Seguridad y Riesgo — 3 Ciclos / Visor BD / Sintéticos</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Laboratorio QA, Seguridad y Riesgo</title>
   <style>
     :root {
-      --bg: #0f172a; --card: #1e293b; --card-2: #0b1220;
-      --text: #f8fafc; --muted: #94a3b8; --border: #334155;
+      --bg: #0f172a;
+      --card: #1e293b;
+      --muted: #94a3b8;
+      --text: #f8fafc;
       --accent: #38bdf8;
+      --ok: #22c55e;
+      --warn: #f59e0b;
+      --err: #ef4444;
+      --border: #334155;
     }
-    * { box-sizing: border-box; }
     body {
-      margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-      background: var(--bg); color: var(--text); padding: 20px; line-height: 1.45;
+      margin: 0;
+      font-family: Inter, system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.45;
     }
-    .container { max-width: 1260px; margin: 0 auto; }
-    .topbar {
-      display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center;
-      gap: 12px; background: var(--card); border: 1px solid var(--border);
-      border-radius: 12px; padding: 14px 18px; margin-bottom: 16px;
+    .wrap {
+      max-width: 1180px;
+      margin: 24px auto;
+      padding: 0 16px 48px;
+    }
+    .top-bar {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px 18px;
+      margin-bottom: 16px;
     }
     .badge {
-      display: inline-block; padding: 4px 10px; border-radius: 999px;
-      font-weight: 700; font-size: 11.5px; letter-spacing: 0.3px;
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
     }
-    .badge-buggy { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid #f59e0b; }
-    .badge-clean { background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid #22c55e; }
-    .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 16px; margin-bottom: 16px; }
+    .badge-buggy {
+      background: rgba(245, 158, 11, 0.2);
+      color: #fcd34d;
+      border: 1px solid var(--warn);
+    }
+    .badge-clean {
+      background: rgba(34, 197, 94, 0.2);
+      color: #86efac;
+      border: 1px solid var(--ok);
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+      gap: 16px;
+      margin-bottom: 16px;
+    }
     .card {
-      background: var(--card); border: 1px solid var(--border);
-      border-radius: 12px; padding: 16px; margin-bottom: 16px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
     }
-    .locked { opacity: 0.45; pointer-events: none; filter: grayscale(0.5); }
-    h2 { margin: 0 0 10px 0; font-size: 16px; color: var(--accent); }
-    label { display: block; font-size: 12px; color: var(--muted); margin-top: 8px; margin-bottom: 4px; }
-    input, select, textarea, button {
-      width: 100%; padding: 8px 10px; border-radius: 8px;
-      border: 1px solid var(--border); background: var(--card-2); color: var(--text); font-size: 13px;
+    .card h2, .card h3 {
+      margin: 0 0 8px;
+      font-size: 16px;
     }
-    button { cursor: pointer; font-weight: 600; background: #0284c7; border: none; margin-top: 8px; }
-    button:hover { background: #0369a1; }
-    button.secondary { background: #334155; }
-    button.secondary:hover { background: #475569; }
-    button.danger { background: #b91c1c; }
-    button.danger:hover { background: #991b1b; }
-    button.ok { background: #15803d; }
-    button.ok:hover { background: #166534; }
-    .row-btns { display: flex; gap: 8px; flex-wrap: wrap; }
-    .row-btns button, .row-btns > div { flex: 1; min-width: 110px; }
-    table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
-    th, td { border-bottom: 1px solid var(--border); padding: 7px 8px; text-align: left; }
-    th { color: var(--muted); cursor: pointer; user-select: none; }
+    .muted {
+      color: var(--muted);
+      font-size: 13px;
+    }
+    label {
+      display: block;
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 10px;
+      margin-bottom: 4px;
+    }
+    input, select, textarea {
+      width: 100%;
+      box-sizing: border-box;
+      background: #0f172a;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 14px;
+    }
+    button {
+      margin-top: 10px;
+      background: var(--accent);
+      color: #082f49;
+      border: none;
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-weight: 700;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    button.secondary {
+      background: #334155;
+      color: var(--text);
+    }
+    button.ok {
+      background: var(--ok);
+      color: #052e16;
+    }
+    button.danger {
+      background: var(--err);
+      color: #fff;
+    }
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    .row-btns {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+      font-size: 13px;
+    }
+    th, td {
+      border-bottom: 1px solid var(--border);
+      padding: 8px 6px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      color: var(--muted);
+      cursor: pointer;
+      user-select: none;
+    }
     pre {
-      background: var(--card-2); border: 1px solid var(--border); border-radius: 8px;
-      padding: 12px; overflow-x: auto; font-size: 12px; max-height: 280px; margin: 0;
+      background: #0b1120;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      overflow: auto;
+      max-height: 280px;
+      font-size: 12px;
+      margin: 8px 0 0;
     }
-    .small { font-size: 12px; color: var(--muted); }
-    .inline-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; margin-top: 8px; }
-    .inline-bar > div { flex: 1; min-width: 145px; }
-    .inline-bar button { width: auto; padding: 8px 14px; }
+    .locked {
+      opacity: 0.55;
+    }
   </style>
 </head>
 <body>
-<div class="container">
-  <div class="topbar">
-    <div>
-      <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-        <strong>Laboratorio QA, Seguridad y Riesgo</strong>
-        <span id="modeBadge" class="badge badge-buggy">PRÁCTICAS (BUGGY)</span>
-        <span id="cycleBadge" class="badge badge-buggy">CICLO: ALL_ERRORS (SIN CONTROLES)</span>
+  <div class="wrap">
+    <div class="top-bar">
+      <div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <strong>Laboratorio QA, Seguridad y Riesgo</strong>
+          <span id="modeBadge" class="badge badge-buggy">PRÁCTICAS (BUGGY)</span>
+          <span id="cycleBadge" class="badge badge-buggy">CICLO: ALL_ERRORS (SIN CONTROLES)</span>
+        </div>
+        <div id="sessionInfo" class="muted" style="margin-top:4px;">Sin sesión activa · Token: ninguno</div>
       </div>
-      <div class="small" id="sessionInfo">Sin sesión activa · Token: ninguno</div>
+      <div class="row-btns" style="align-items:center;">
+        <div>
+          <label for="cycleSelect" style="margin:0 0 2px;">Ciclo de pruebas</label>
+          <select id="cycleSelect" onchange="changeCycle()" style="width:auto;">
+            <option value="all_errors">1. all_errors (todos los errores / sin controles)</option>
+            <option value="half_errors">2. half_errors (controles parciales)</option>
+            <option value="all_clean">3. all_clean (con controles)</option>
+          </select>
+        </div>
+        <button class="secondary" onclick="switchToBuggy()">Volver a BUGGY</button>
+        <button class="danger" onclick="resetLab()">Reiniciar datos (admin)</button>
+      </div>
     </div>
-    <div class="inline-bar" style="margin-top:0; max-width:650px;">
-      <div style="min-width:230px;">
-        <label for="cycleSelect" style="margin-top:0;">Ciclo de pruebas</label>
-        <select id="cycleSelect" onchange="changeCycle()">
-          <option value="all_errors">1. all_errors (todos los errores / sin controles)</option>
-          <option value="half_errors">2. half_errors (mitad de fallos / controles parciales)</option>
-          <option value="all_clean">3. all_clean (todo bien / con controles)</option>
+
+    <div class="card" style="margin-bottom:16px;">
+      <h2>Desbloqueo de Modo Solucionado (CLEAN)</h2>
+      <p class="muted">Por defecto el entorno inicia en <strong>BUGGY</strong>. Introduce usuario y contraseña para activar <strong>CLEAN</strong>.</p>
+      <div class="grid" style="margin-bottom:0;">
+        <div>
+          <label for="cleanUser">Usuario CLEAN</label>
+          <input id="cleanUser" type="text" value="instructor@lab.local" />
+        </div>
+        <div>
+          <label for="cleanPass">Contraseña CLEAN</label>
+          <input id="cleanPass" type="password" value="CleanMode2026!" />
+        </div>
+        <div style="display:flex;align-items:flex-end;">
+          <button class="ok" onclick="unlockClean()">Activar modo CLEAN</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h3>1. Sesión (Login / Logout)</h3>
+        <label for="loginEmail">Correo de usuario</label>
+        <input id="loginEmail" type="email" value="cliente1@ejemplo.com" />
+        <label for="loginPass">Contraseña</label>
+        <input id="loginPass" type="password" value="cliente123" />
+        <div class="row-btns">
+          <button onclick="doLogin()">Iniciar sesión</button>
+          <button id="btnLogout" class="secondary" onclick="doLogout()" disabled>Cerrar sesión</button>
+        </div>
+        <p class="muted" style="margin-top:10px;">
+          Usuarios: admin@ejemplo.com / cliente1@ejemplo.com / cliente2@ejemplo.com / viewer@ejemplo.com
+        </p>
+      </div>
+
+      <div id="secCreate" class="card locked">
+        <h3>2. Crear Pedido / Evaluar Riesgo y RGPD</h3>
+        <div class="row-btns">
+          <button class="ok" onclick="fillGoodData()">Cargar datos buenos</button>
+          <button class="danger" onclick="fillBadData()">Cargar datos malos</button>
+        </div>
+        <label for="custEmail">Correo del cliente</label>
+        <input id="custEmail" type="text" value="cliente1@ejemplo.com" />
+        <div class="grid" style="grid-template-columns:1fr 1fr;gap:8px;margin:0;">
+          <div>
+            <label for="amount">Importe (€)</label>
+            <input id="amount" type="number" step="0.01" value="200" />
+          </div>
+          <div>
+            <label for="discount">Descuento (%)</label>
+            <input id="discount" type="number" step="0.01" value="25" />
+          </div>
+        </div>
+        <label for="consent">Consentimiento marketing (0 = No, 1 = Sí; o inválido en pruebas)</label>
+        <input id="consent" type="text" value="0" />
+        <label for="notes">Notas (notes)</label>
+        <input id="notes" type="text" value="" />
+        <div class="row-btns">
+          <button class="secondary" onclick="checkRisk()">Evaluar Riesgo/GDPR</button>
+          <button onclick="createOrder()">Crear pedido</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="secOrders" class="card locked" style="margin-bottom:16px;">
+      <h3>3. Pedidos (ID_PED)</h3>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th onclick="sortOrders('order_code')">ID_PED</th>
+              <th onclick="sortOrders('customer_email')">Cliente</th>
+              <th onclick="sortOrders('amount')">Importe</th>
+              <th onclick="sortOrders('discount_pct')">Desc.</th>
+              <th onclick="sortOrders('final_amount')">Final</th>
+              <th onclick="sortOrders('marketing_consent')">RGPD</th>
+              <th onclick="sortOrders('status')">Estado</th>
+              <th onclick="sortOrders('notes')">Notas</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="ordersBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="secLogs" class="card locked" style="margin-bottom:16px;">
+      <h3>4. Trazabilidad (ID_TRA)</h3>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:8px;">
+        <div>
+          <label for="logLimit">Límite de registros</label>
+          <select id="logLimit" onchange="loadLogs()">
+            <option value="25">25</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+        </div>
+        <div>
+          <label for="actorFilter">Filtrar por usuario</label>
+          <input id="actorFilter" type="text" placeholder="ej. cliente1@ejemplo.com" oninput="loadLogs()" />
+        </div>
+      </div>
+      <div style="overflow-x:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th onclick="sortLogs('trace_code')">ID_TRA</th>
+              <th onclick="sortLogs('created_at')">Fecha/Hora</th>
+              <th onclick="sortLogs('test_cycle')">Ciclo</th>
+              <th onclick="sortLogs('lab_mode')">Modo</th>
+              <th onclick="sortLogs('actor_email')">Usuario</th>
+              <th onclick="sortLogs('role')">Rol</th>
+              <th onclick="sortLogs('action')">Acción</th>
+              <th onclick="sortLogs('status_code')">HTTP</th>
+              <th onclick="sortLogs('detail')">Detalle</th>
+            </tr>
+          </thead>
+          <tbody id="logsBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div id="secDb" class="card locked">
+        <h3>5. Visor Controlado de Base de Datos (SQLite)</h3>
+        <button class="secondary" onclick="inspectDb()">Inspeccionar BD</button>
+        <pre id="dbOutput">{}</pre>
+      </div>
+
+      <div id="secSynth" class="card locked">
+        <h3>6. Generador de Datos Sintéticos</h3>
+        <label for="synthProfile">Perfil</label>
+        <select id="synthProfile">
+          <option value="mixto">mixto</option>
+          <option value="normal">normal</option>
+          <option value="extremos">extremos</option>
+          <option value="rgpd">rgpd</option>
         </select>
-      </div>
-      <button class="secondary" onclick="switchToBuggy()">Volver a BUGGY</button>
-      <button class="danger" onclick="resetLab()">Reiniciar datos (admin)</button>
-    </div>
-  </div>
-
-  <div class="card">
-    <h2>Desbloqueo de Modo Solucionado (CLEAN)</h2>
-    <div class="small">Por defecto el entorno inicia en <strong>BUGGY</strong>. Introduce usuario y contraseña para activar <strong>CLEAN</strong>.</div>
-    <div class="inline-bar">
-      <div>
-        <label for="cleanUser">Usuario CLEAN</label>
-        <input id="cleanUser" value="instructor@lab.local" />
-      </div>
-      <div>
-        <label for="cleanPass">Contraseña CLEAN</label>
-        <input id="cleanPass" type="password" value="CleanMode2026!" />
-      </div>
-      <div>
-        <button class="ok" onclick="unlockClean()">Activar modo CLEAN</button>
+        <label for="synthCount">Cantidad (1-20)</label>
+        <input id="synthCount" type="number" min="1" max="20" value="5" />
+        <button onclick="generateSynthetic()">Generar lote sintético</button>
       </div>
     </div>
-  </div>
 
-  <div class="grid-2">
     <div class="card">
-      <h2>1. Sesión (Login / Logout)</h2>
-      <label for="loginEmail">Correo de usuario</label>
-      <input id="loginEmail" value="admin@ejemplo.com" />
-      <label for="loginPass">Contraseña</label>
-      <input id="loginPass" type="password" value="admin123" />
-      <div class="row-btns">
-        <button onclick="doLogin()">Iniciar sesión</button>
-        <button id="btnLogout" class="secondary" onclick="doLogout()" disabled>Cerrar sesión</button>
-      </div>
-      <div class="small" style="margin-top:8px;">
-        Usuarios: <code>admin@ejemplo.com</code> / <code>cliente1@ejemplo.com</code> / <code>cliente2@ejemplo.com</code> / <code>viewer@ejemplo.com</code>
-      </div>
-    </div>
-
-    <div class="card" id="secCreate">
-      <h2>2. Crear Pedido / Evaluar Riesgo y RGPD</h2>
-      <div class="row-btns" style="margin-bottom:6px;">
-        <button type="button" class="ok" onclick="fillGoodData()">Cargar datos buenos</button>
-        <button type="button" class="danger" onclick="fillBadData()">Cargar datos malos</button>
-      </div>
-      <label for="custEmail">Correo del cliente</label>
-      <input id="custEmail" type="text" value="cliente1@ejemplo.com" />
-      <div class="row-btns">
-        <div>
-          <label for="amount">Importe (€)</label>
-          <input id="amount" type="number" step="0.01" value="200" />
-        </div>
-        <div>
-          <label for="discount">Descuento (%)</label>
-          <input id="discount" type="number" step="0.1" value="25" />
-        </div>
-      </div>
-      <label for="consent">Consentimiento marketing (0 = No, 1 = Sí; o inválido en pruebas)</label>
-      <input id="consent" type="number" step="1" value="0" />
-      <label for="notes">Notas (notes)</label>
-      <textarea id="notes" rows="2" placeholder="Ej. Entrega urgente o datos de prueba..."></textarea>
-      <div class="row-btns">
-        <button type="button" class="secondary" onclick="checkRisk()">Evaluar Riesgo/GDPR</button>
-        <button type="button" onclick="createOrder()">Crear pedido</button>
-      </div>
+      <h3>Última respuesta de la API (HTTP + JSON)</h3>
+      <pre id="apiOutput">Listo.</pre>
     </div>
   </div>
 
-  <div class="card" id="secOrders">
-    <h2>3. Pedidos (ID_PED) — Incluye datos buenos y malos semilla</h2>
-    <div class="row-btns" style="max-width:640px;">
-      <button class="secondary" onclick="loadOrders()">Actualizar lista</button>
-      <button class="secondary" onclick="sortOrders('id')">Ordenar ID_PED</button>
-      <button class="secondary" onclick="sortOrders('customer_email')">Ordenar Cliente</button>
-      <button class="secondary" onclick="sortOrders('final_amount')">Ordenar Final</button>
-    </div>
-    <table>
-      <thead>
-        <tr>
-          <th onclick="sortOrders('id')">ID_PED</th>
-          <th onclick="sortOrders('customer_email')">Cliente</th>
-          <th>Bruto</th>
-          <th>Desc. %</th>
-          <th onclick="sortOrders('final_amount')">Final</th>
-          <th>RGPD</th>
-          <th>Estado</th>
-          <th>Notas</th>
-          <th>Acciones</th>
-        </tr>
-      </thead>
-      <tbody id="ordersBody"></tbody>
-    </table>
-  </div>
+  <script>
+    let labMode = "buggy";
+    let testCycle = "all_errors";
+    let cleanToken = null;
+    let sessionToken = null;
+    let currentUser = null;
+    let ordersCache = [];
+    let logsCache = [];
+    let orderSortAsc = false;
+    let logSortAsc = false;
 
-  <div class="card" id="secLogs">
-    <h2>4. Trazabilidad (ID_TRA)</h2>
-    <div class="inline-bar">
-      <div>
-        <label for="logLimit">Mostrar registros</label>
-        <select id="logLimit" onchange="loadLogs()">
-          <option value="25">25</option>
-          <option value="50">50</option>
-          <option value="100">100</option>
-        </select>
-      </div>
-      <div>
-        <label for="actorFilter">Filtrar por usuario (admin)</label>
-        <input id="actorFilter" placeholder="Ej. cliente1@ejemplo.com" />
-      </div>
-      <div>
-        <button class="secondary" onclick="loadLogs()">Consultar trazabilidad</button>
-      </div>
-    </div>
-    <table>
-      <thead>
-        <tr>
-          <th onclick="sortLogs('id')">ID_TRA</th>
-          <th>Fecha/Hora</th>
-          <th>Ciclo</th>
-          <th>Modo</th>
-          <th>Usuario</th>
-          <th>Rol</th>
-          <th>Acción</th>
-          <th>HTTP</th>
-          <th>Detalle</th>
-        </tr>
-      </thead>
-      <tbody id="logsBody"></tbody>
-    </table>
-  </div>
-
-  <div class="grid-2">
-    <div class="card" id="secDb">
-      <h2>5. Visor Controlado de Base de Datos (SQLite)</h2>
-      <div class="small">Inspecciona conteos, esquema y registros de <code>users</code>, <code>orders</code> y <code>audit_logs</code>.</div>
-      <button class="secondary" onclick="inspectDb()">Inspeccionar base de datos</button>
-      <pre id="dbOutput" style="margin-top:10px;">Sin inspección ejecutada todavía.</pre>
-    </div>
-
-    <div class="card" id="secSynth">
-      <h2>6. Generador de Datos Sintéticos para Pruebas</h2>
-      <label for="synthProfile">Perfil de datos sintéticos</label>
-      <select id="synthProfile">
-        <option value="mixto">Mixto (buenos + extremos + RGPD/malos)</option>
-        <option value="normal">Normales (buenos)</option>
-        <option value="extremos">Límite / Extremos (0%, 15%, 25%, 100%)</option>
-        <option value="rgpd">RGPD / Malos (consentimiento 0, PII, campos rotos)</option>
-      </select>
-      <label for="synthCount">Cantidad de pedidos (1-20)</label>
-      <input id="synthCount" type="number" min="1" max="20" value="4" />
-      <button class="ok" onclick="generateSynthetic()">Generar lote sintético</button>
-    </div>
-  </div>
-
-  <div class="card">
-    <h2>Última respuesta de la API (HTTP + JSON)</h2>
-    <pre id="apiOutput">Listo para ejecutar pruebas.</pre>
-  </div>
-</div>
-
-<script>
-  let labMode = "buggy";
-  let testCycle = "all_errors";
-  let cleanToken = null;
-  let sessionToken = null;
-  let currentUser = null;
-  let ordersCache = [];
-  let logsCache = [];
-  let orderSortAsc = false;
-  let logSortAsc = false;
-
-  function headers() {
-    const h = {
-      "Content-Type": "application/json",
-      "X-Lab-Mode": labMode,
-      "X-Test-Cycle": testCycle,
-    };
-    if (currentUser && currentUser.email) h["X-User-Email"] = currentUser.email;
-    if (sessionToken) h["X-Session-Token"] = sessionToken;
-    if (cleanToken && labMode === "clean") h["X-Clean-Token"] = cleanToken;
-    return h;
-  }
-
-  function showApi(status, data) {
-    document.getElementById("apiOutput").textContent = "HTTP " + status + "\n" + JSON.stringify(data, null, 2);
-  }
-
-  function syncCycleBadge() {
-    const cBadge = document.getElementById("cycleBadge");
-    const labels = {
-      all_errors: { text: "CICLO: ALL_ERRORS (SIN CONTROLES)", cls: "badge badge-buggy" },
-      half_errors: { text: "CICLO: HALF_ERRORS (CONTROLES PARCIALES)", cls: "badge badge-buggy" },
-      all_clean: { text: "CICLO: ALL_CLEAN (CON CONTROLES)", cls: "badge badge-clean" },
-    };
-    const cfg = labels[testCycle] || labels.all_errors;
-    cBadge.textContent = cfg.text;
-    cBadge.className = cfg.cls;
-  }
-
-  function syncUiState() {
-    const badge = document.getElementById("modeBadge");
-    if (labMode === "clean") {
-      badge.textContent = "SOLUCIONADO (CLEAN)";
-      badge.className = "badge badge-clean";
-    } else {
-      badge.textContent = "PRÁCTICAS (BUGGY)";
-      badge.className = "badge badge-buggy";
+    function headers() {
+      const h = {
+        "Content-Type": "application/json",
+        "X-Lab-Mode": labMode,
+        "X-Test-Cycle": testCycle,
+      };
+      if (currentUser && currentUser.email) h["X-User-Email"] = currentUser.email;
+      if (sessionToken) h["X-Session-Token"] = sessionToken;
+      if (cleanToken && labMode === "clean") h["X-Clean-Token"] = cleanToken;
+      return h;
     }
-    syncCycleBadge();
 
-    const logged = Boolean(currentUser);
-    document.getElementById("sessionInfo").textContent = logged
-      ? "Usuario: " + currentUser.email + " · Rol: " + currentUser.role + " · Token sesión: " + (sessionToken ? sessionToken.slice(0, 8) + "..." : "no")
-      : "Sin sesión activa · Token: ninguno";
-
-    document.getElementById("btnLogout").disabled = !logged;
-    ["secCreate", "secOrders", "secLogs", "secDb", "secSynth"].forEach((id) => {
-      const el = document.getElementById(id);
-      if (logged) el.classList.remove("locked");
-      else el.classList.add("locked");
-    });
-  }
-
-  async function changeCycle() {
-    testCycle = document.getElementById("cycleSelect").value;
-    syncUiState();
-    const res = await fetch("/cycle/set", {
-      method: "POST",
-      headers: headers(),
-      body: JSON.stringify({ cycle: testCycle }),
-    });
-    const data = await res.json();
-    showApi(res.status, data);
-    if (currentUser) {
-      await loadOrders();
-      await loadLogs();
+    function showApi(status, data) {
+      document.getElementById("apiOutput").textContent =
+        "HTTP " + status + "\\n" + JSON.stringify(data, null, 2);
     }
-  }
 
-  async function unlockClean() {
-    const username = document.getElementById("cleanUser").value;
-    const password = document.getElementById("cleanPass").value;
-    const res = await fetch("/mode/clean-login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
-    });
-    const data = await res.json();
-    showApi(res.status, data);
-    if (res.ok) {
-      cleanToken = data.clean_token;
-      labMode = "clean";
+    function syncCycleBadge() {
+      const cBadge = document.getElementById("cycleBadge");
+      const labels = {
+        all_errors: { text: "CICLO: ALL_ERRORS (SIN CONTROLES)", cls: "badge badge-buggy" },
+        half_errors: { text: "CICLO: HALF_ERRORS (CONTROLES PARCIALES)", cls: "badge badge-buggy" },
+        all_clean: { text: "CICLO: ALL_CLEAN (CON CONTROLES)", cls: "badge badge-clean" },
+      };
+      const cfg = labels[testCycle] || labels.all_errors;
+      cBadge.textContent = cfg.text;
+      cBadge.className = cfg.cls;
+    }
+
+    function syncUiState() {
+      const badge = document.getElementById("modeBadge");
+      if (labMode === "clean") {
+        badge.textContent = "SOLUCIONADO (CLEAN)";
+        badge.className = "badge badge-clean";
+      } else {
+        badge.textContent = "PRÁCTICAS (BUGGY)";
+        badge.className = "badge badge-buggy";
+      }
+      syncCycleBadge();
+
+      const logged = Boolean(currentUser);
+      document.getElementById("sessionInfo").textContent = logged
+        ? "Usuario: " + currentUser.email + " · Rol: " + currentUser.role + " · Token sesión: " + (sessionToken ? sessionToken.slice(0, 8) + "..." : "no")
+        : "Sin sesión activa · Token: ninguno";
+
+      document.getElementById("btnLogout").disabled = !logged;
+      ["secCreate", "secOrders", "secLogs", "secDb", "secSynth"].forEach((id) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (logged) el.classList.remove("locked");
+        else el.classList.add("locked");
+      });
+    }
+
+    async function changeCycle() {
+      testCycle = document.getElementById("cycleSelect").value;
       syncUiState();
+      const res = await fetch("/cycle/set", {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({ cycle: testCycle }),
+      });
+      const data = await res.json();
+      showApi(res.status, data);
       if (currentUser) {
         await loadOrders();
         await loadLogs();
       }
     }
-  }
 
-  function switchToBuggy() {
-    labMode = "buggy";
-    syncUiState();
-    if (currentUser) {
-      loadOrders();
-      loadLogs();
+    async function unlockClean() {
+      const username = document.getElementById("cleanUser").value;
+      const password = document.getElementById("cleanPass").value;
+      const res = await fetch("/mode/clean-login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await res.json();
+      showApi(res.status, data);
+      if (res.ok) {
+        cleanToken = data.clean_token;
+        labMode = "clean";
+        syncUiState();
+        if (currentUser) {
+          await loadOrders();
+          await loadLogs();
+        }
+      }
     }
-  }
 
-  async function doLogin() {
-    const email = document.getElementById("loginEmail").value;
-    const password = document.getElementById("loginPass").value;
-    const res = await fetch("/login", {
-      method: "POST",
-      headers: headers(),
-      body: JSON.stringify({ email, password }),
-    });
-    const data = await res.json();
-    showApi(res.status, data);
-    if (res.ok) {
-      currentUser = { email: data.email, role: data.role };
-      sessionToken = data.session_token;
+    function switchToBuggy() {
+      labMode = "buggy";
       syncUiState();
+      if (currentUser) {
+        loadOrders();
+        loadLogs();
+      }
+    }
+
+    async function doLogin() {
+      const email = document.getElementById("loginEmail").value;
+      const password = document.getElementById("loginPass").value;
+      const res = await fetch("/login", {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      showApi(res.status, data);
+      if (res.ok) {
+        currentUser = { email: data.email, role: data.role };
+        sessionToken = data.session_token;
+        syncUiState();
+        await loadOrders();
+        await loadLogs();
+      }
+    }
+
+    async function doLogout() {
+      const res = await fetch("/logout", { method: "POST", headers: headers() });
+      const data = await res.json();
+      showApi(res.status, data);
+      currentUser = null;
+      sessionToken = null;
+      ordersCache = [];
+      logsCache = [];
+      document.getElementById("ordersBody").innerHTML = "";
+      document.getElementById("logsBody").innerHTML = "";
+      syncUiState();
+    }
+
+    async function resetLab() {
+      const res = await fetch("/reset-lab", { method: "POST", headers: headers() });
+      const data = await res.json();
+      showApi(res.status, data);
+      if (res.ok) {
+        await loadOrders();
+        await loadLogs();
+      }
+    }
+
+    function fillGoodData() {
+      document.getElementById("custEmail").value = "cliente1@ejemplo.com";
+      document.getElementById("amount").value = "200";
+      document.getElementById("discount").value = "10";
+      document.getElementById("consent").value = "1";
+      document.getElementById("notes").value = "Pedido estándar válido sin datos personales";
+    }
+
+    function fillBadData() {
+      document.getElementById("custEmail").value = "correo-invalido-sin-arroba";
+      document.getElementById("amount").value = "-120";
+      document.getElementById("discount").value = "140";
+      document.getElementById("consent").value = "9";
+      document.getElementById("notes").value = "Llamar al 600123456, DNI 12345678A <" + "script>alert(1)</" + "script>";
+    }
+
+    function orderPayload() {
+      return {
+        customer_email: document.getElementById("custEmail").value,
+        amount: parseFloat(document.getElementById("amount").value || "0"),
+        discount_pct: parseFloat(document.getElementById("discount").value || "0"),
+        marketing_consent: parseInt(document.getElementById("consent").value || "0", 10),
+        notes: document.getElementById("notes").value,
+      };
+    }
+
+    async function checkRisk() {
+      const res = await fetch("/orders/ai-risk-check", {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify(orderPayload()),
+      });
+      const data = await res.json();
+      showApi(res.status, data);
+      await loadLogs();
+    }
+
+    async function createOrder() {
+      const res = await fetch("/orders", {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify(orderPayload()),
+      });
+      const data = await res.json();
+      showApi(res.status, data);
       await loadOrders();
       await loadLogs();
     }
-  }
 
-  async function doLogout() {
-    const res = await fetch("/logout", { method: "POST", headers: headers() });
-    const data = await res.json();
-    showApi(res.status, data);
-    currentUser = null;
-    sessionToken = null;
-    ordersCache = [];
-    logsCache = [];
-    document.getElementById("ordersBody").innerHTML = "";
-    document.getElementById("logsBody").innerHTML = "";
-    syncUiState();
-  }
-
-  async function resetLab() {
-    const res = await fetch("/reset-lab", { method: "POST", headers: headers() });
-    const data = await res.json();
-    showApi(res.status, data);
-    if (res.ok) {
-      await loadOrders();
-      await loadLogs();
+    function escapeHtml(value) {
+      return String(value == null ? "" : value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
     }
-  }
 
-  function fillGoodData() {
-    document.getElementById("custEmail").value = "cliente1@ejemplo.com";
-    document.getElementById("amount").value = "200";
-    document.getElementById("discount").value = "10";
-    document.getElementById("consent").value = "1";
-    document.getElementById("notes").value = "Pedido estándar válido sin datos personales";
-  }
+    function renderOrders() {
+      const tbody = document.getElementById("ordersBody");
+      tbody.innerHTML = ordersCache.map((o) => {
+        const rgpdLabel = o.marketing_consent === 1 ? "Sí (1)" : "No (" + o.marketing_consent + ")";
+        return (
+          "<tr>" +
+          "<td><strong>" + escapeHtml(o.order_code) + "</strong></td>" +
+          "<td>" + escapeHtml(o.customer_email) + "</td>" +
+          "<td>" + escapeHtml(o.amount) + "</td>" +
+          "<td>" + escapeHtml(o.discount_pct) + "%</td>" +
+          "<td><strong>" + escapeHtml(o.final_amount) + "</strong></td>" +
+          "<td>" + escapeHtml(rgpdLabel) + "</td>" +
+          "<td>" + escapeHtml(o.status) + "</td>" +
+          "<td>" + escapeHtml(o.notes || "") + "</td>" +
+          "<td><div class='row-btns' style='margin:0;'>" +
+          "<button class='ok' style='margin:0;padding:4px 8px;' onclick=\\"setStatus(" + o.id + ", 'approved')\\">Aprobar</button>" +
+          "<button class='secondary' style='margin:0;padding:4px 8px;' onclick=\\"setStatus(" + o.id + ", 'cancelled')\\">Cancelar</button>" +
+          "<button class='danger' style='margin:0;padding:4px 8px;' onclick=\\"delOrder(" + o.id + ")\\">Borrar</button>" +
+          "</div></td>" +
+          "</tr>"
+        );
+      }).join("");
+    }
 
-  function fillBadData() {
-    document.getElementById("custEmail").value = "correo-invalido-sin-arroba";
-    document.getElementById("amount").value = "-120";
-    document.getElementById("discount").value = "140";
-    document.getElementById("consent").value = "9";
-    document.getElementById("notes").value = "Llamar al 600123456, DNI 12345678A <script>alert(1)</script>";
-  }
+    async function loadOrders() {
+      const res = await fetch("/orders", { headers: headers() });
+      const data = await res.json();
+      if (res.ok) {
+        ordersCache = data.orders || [];
+        renderOrders();
+      } else {
+        showApi(res.status, data);
+      }
+    }
 
-  function orderPayload() {
-    return {
-      customer_email: document.getElementById("custEmail").value,
-      amount: parseFloat(document.getElementById("amount").value || "0"),
-      discount_pct: parseFloat(document.getElementById("discount").value || "0"),
-      marketing_consent: parseInt(document.getElementById("consent").value || "0", 10),
-      notes: document.getElementById("notes").value,
-    };
-  }
-
-  async function checkRisk() {
-    const res = await fetch("/orders/ai-risk-check", {
-      method: "POST",
-      headers: headers(),
-      body: JSON.stringify(orderPayload()),
-    });
-    const data = await res.json();
-    showApi(res.status, data);
-    await loadLogs();
-  }
-
-  async function createOrder() {
-    const res = await fetch("/orders", {
-      method: "POST",
-      headers: headers(),
-      body: JSON.stringify(orderPayload()),
-    });
-    const data = await res.json();
-    showApi(res.status, data);
-    await loadOrders();
-    await loadLogs();
-  }
-
-  function escapeHtml(value) {
-    return String(value == null ? "" : value)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;")
-      .replace(/"/g, "&quot;");
-  }
-
-  function renderOrders() {
-    const tbody = document.getElementById("ordersBody");
-    tbody.innerHTML = ordersCache.map((o) => {
-      const rgpdLabel = o.marketing_consent === 1 ? "Sí (1)" : "No (" + o.marketing_consent + ")";
-      return (
-        "<tr>" +
-        "<td><strong>" + escapeHtml(o.order_code) + "</strong></td>" +
-        "<td>" + escapeHtml(o.customer_email) + "</td>" +
-        "<td>" + escapeHtml(o.amount) + "</td>" +
-        "<td>" + escapeHtml(o.discount_pct) + "%</td>" +
-        "<td><strong>" + escapeHtml(o.final_amount) + "</strong></td>" +
-        "<td>" + escapeHtml(rgpdLabel) + "</td>" +
-        "<td>" + escapeHtml(o.status) + "</td>" +
-        "<td>" + escapeHtml(o.notes || "") + "</td>" +
-        "<td>" +
-        "<div class='row-btns' style='margin:0;'>" +
-        "<button class='ok' style='margin:0;padding:4px 8px;' onclick=\"setStatus(" + o.id + ", 'approved')\">Aprobar</button>" +
-        "<button class='secondary' style='margin:0;padding:4px 8px;' onclick=\"setStatus(" + o.id + ", 'cancelled')\">Cancelar</button>" +
-        "<button class='danger' style='margin:0;padding:4px 8px;' onclick=\"delOrder(" + o.id + ")\">Borrar</button>" +
-        "</div>" +
-        "</td>" +
-        "</tr>"
-      );
-    }).join("");
-  }
-
-  async function loadOrders() {
-    const res = await fetch("/orders", { headers: headers() });
-    const data = await res.json();
-    if (res.ok) {
-      ordersCache = data.orders || [];
+    function sortOrders(field) {
+      orderSortAsc = !orderSortAsc;
+      ordersCache.sort((a, b) => {
+        if (typeof a[field] === "number") return orderSortAsc ? a[field] - b[field] : b[field] - a[field];
+        return orderSortAsc
+          ? String(a[field]).localeCompare(String(b[field]))
+          : String(b[field]).localeCompare(String(a[field]));
+      });
       renderOrders();
-    } else {
-      showApi(res.status, data);
     }
-  }
 
-  function sortOrders(field) {
-    orderSortAsc = !orderSortAsc;
-    ordersCache.sort((a, b) => {
-      if (typeof a[field] === "number") return orderSortAsc ? a[field] - b[field] : b[field] - a[field];
-      return orderSortAsc
-        ? String(a[field]).localeCompare(String(b[field]))
-        : String(b[field]).localeCompare(String(a[field]));
-    });
-    renderOrders();
-  }
+    async function setStatus(orderId, status) {
+      const res = await fetch("/orders/" + orderId + "/status", {
+        method: "PATCH",
+        headers: headers(),
+        body: JSON.stringify({ status }),
+      });
+      const data = await res.json();
+      showApi(res.status, data);
+      await loadOrders();
+      await loadLogs();
+    }
 
-  async function setStatus(orderId, status) {
-    const res = await fetch("/orders/" + orderId + "/status", {
-      method: "PATCH",
-      headers: headers(),
-      body: JSON.stringify({ status }),
-    });
-    const data = await res.json();
-    showApi(res.status, data);
-    await loadOrders();
-    await loadLogs();
-  }
+    async function delOrder(orderId) {
+      const res = await fetch("/orders/" + orderId, { method: "DELETE", headers: headers() });
+      const data = await res.json();
+      showApi(res.status, data);
+      await loadOrders();
+      await loadLogs();
+    }
 
-  async function delOrder(orderId) {
-    const res = await fetch("/orders/" + orderId, { method: "DELETE", headers: headers() });
-    const data = await res.json();
-    showApi(res.status, data);
-    await loadOrders();
-    await loadLogs();
-  }
+    function renderLogs() {
+      const tbody = document.getElementById("logsBody");
+      tbody.innerHTML = logsCache.map((l) => (
+        "<tr>" +
+        "<td><strong>" + escapeHtml(l.trace_code) + "</strong></td>" +
+        "<td>" + escapeHtml(l.created_at) + "</td>" +
+        "<td>" + escapeHtml(l.test_cycle || "-") + "</td>" +
+        "<td>" + escapeHtml(l.lab_mode) + "</td>" +
+        "<td>" + escapeHtml(l.actor_email) + "</td>" +
+        "<td>" + escapeHtml(l.role) + "</td>" +
+        "<td>" + escapeHtml(l.action) + "</td>" +
+        "<td>" + escapeHtml(l.status_code) + "</td>" +
+        "<td>" + escapeHtml(l.detail) + "</td>" +
+        "</tr>"
+      )).join("");
+    }
 
-  function renderLogs() {
-    const tbody = document.getElementById("logsBody");
-    tbody.innerHTML = logsCache.map((l) => (
-      "<tr>" +
-      "<td><strong>" + escapeHtml(l.trace_code) + "</strong></td>" +
-      "<td>" + escapeHtml(l.created_at) + "</td>" +
-      "<td>" + escapeHtml(l.test_cycle || "-") + "</td>" +
-      "<td>" + escapeHtml(l.lab_mode) + "</td>" +
-      "<td>" + escapeHtml(l.actor_email) + "</td>" +
-      "<td>" + escapeHtml(l.role) + "</td>" +
-      "<td>" + escapeHtml(l.action) + "</td>" +
-      "<td>" + escapeHtml(l.status_code) + "</td>" +
-      "<td>" + escapeHtml(l.detail) + "</td>" +
-      "</tr>"
-    )).join("");
-  }
+    async function loadLogs() {
+      const limit = document.getElementById("logLimit").value;
+      const actor = encodeURIComponent(document.getElementById("actorFilter").value || "");
+      const res = await fetch("/audit-logs?limit=" + limit + "&actor_filter=" + actor, { headers: headers() });
+      const data = await res.json();
+      if (res.ok) {
+        logsCache = data.logs || [];
+        renderLogs();
+      } else {
+        showApi(res.status, data);
+      }
+    }
 
-  async function loadLogs() {
-    const limit = document.getElementById("logLimit").value;
-    const actor = encodeURIComponent(document.getElementById("actorFilter").value || "");
-    const res = await fetch("/audit-logs?limit=" + limit + "&actor_filter=" + actor, { headers: headers() });
-    const data = await res.json();
-    if (res.ok) {
-      logsCache = data.logs || [];
+    function sortLogs(field) {
+      logSortAsc = !logSortAsc;
+      logsCache.sort((a, b) => {
+        if (typeof a[field] === "number") return logSortAsc ? a[field] - b[field] : b[field] - a[field];
+        return logSortAsc
+          ? String(a[field]).localeCompare(String(b[field]))
+          : String(b[field]).localeCompare(String(a[field]));
+      });
       renderLogs();
-    } else {
-      showApi(res.status, data);
     }
-  }
 
-  function sortLogs(field) {
-    logSortAsc = !logSortAsc;
-    logsCache.sort((a, b) => {
-      if (typeof a[field] === "number") return logSortAsc ? a[field] - b[field] : b[field] - a[field];
-      return logSortAsc
-        ? String(a[field]).localeCompare(String(b[field]))
-        : String(b[field]).localeCompare(String(a[field]));
+    async function inspectDb() {
+      const res = await fetch("/db/inspect?sample_limit=8", { headers: headers() });
+      const data = await res.json();
+      showApi(res.status, data);
+      document.getElementById("dbOutput").textContent = JSON.stringify(data, null, 2);
+      await loadLogs();
+    }
+
+    async function generateSynthetic() {
+      const profile = document.getElementById("synthProfile").value;
+      const count = parseInt(document.getElementById("synthCount").value, 10);
+      const res = await fetch("/test-data/generate", {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify({ profile, count }),
+      });
+      const data = await res.json();
+      showApi(res.status, data);
+      if (res.ok) {
+        await loadOrders();
+        await loadLogs();
+      }
+    }
+
+    syncUiState();
+  </script>
+</body>
+</html>
+"""
+
+Path("static/index.html").write_text(html, encoding="utf-8")
+print("Escrito static/index.html completo correctamente.")
+EOF
+python3 write_index.py
