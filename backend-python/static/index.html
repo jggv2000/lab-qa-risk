@@ -1,7 +1,7 @@
 cat <<'EOF' > write_index.py
 from pathlib import Path
 
-html = """<!doctype html>
+html = r"""<!doctype html>
 <html lang="es">
 <head>
   <meta charset="utf-8" />
@@ -208,9 +208,9 @@ html = """<!doctype html>
       <div class="card">
         <h3>1. Sesión (Login / Logout)</h3>
         <label for="loginEmail">Correo de usuario</label>
-        <input id="loginEmail" type="email" value="cliente1@ejemplo.com" />
+        <input id="loginEmail" type="email" value="admin@ejemplo.com" />
         <label for="loginPass">Contraseña</label>
-        <input id="loginPass" type="password" value="cliente123" />
+        <input id="loginPass" type="password" value="admin123" />
         <div class="row-btns">
           <button onclick="doLogin()">Iniciar sesión</button>
           <button id="btnLogout" class="secondary" onclick="doLogout()" disabled>Cerrar sesión</button>
@@ -360,7 +360,7 @@ html = """<!doctype html>
 
     function showApi(status, data) {
       document.getElementById("apiOutput").textContent =
-        "HTTP " + status + "\\n" + JSON.stringify(data, null, 2);
+        "HTTP " + status + "\n" + JSON.stringify(data, null, 2);
     }
 
     function syncCycleBadge() {
@@ -501,7 +501,7 @@ html = """<!doctype html>
       document.getElementById("amount").value = "-120";
       document.getElementById("discount").value = "140";
       document.getElementById("consent").value = "9";
-      document.getElementById("notes").value = "Llamar al 600123456, DNI 12345678A <" + "script>alert(1)</" + "script>";
+      document.getElementById("notes").value = "Llamar al 600123456, DNI 12345678A <script>alert(1)</script>";
     }
 
     function orderPayload() {
@@ -560,9 +560,9 @@ html = """<!doctype html>
           "<td>" + escapeHtml(o.status) + "</td>" +
           "<td>" + escapeHtml(o.notes || "") + "</td>" +
           "<td><div class='row-btns' style='margin:0;'>" +
-          "<button class='ok' style='margin:0;padding:4px 8px;' onclick=\\"setStatus(" + o.id + ", 'approved')\\">Aprobar</button>" +
-          "<button class='secondary' style='margin:0;padding:4px 8px;' onclick=\\"setStatus(" + o.id + ", 'cancelled')\\">Cancelar</button>" +
-          "<button class='danger' style='margin:0;padding:4px 8px;' onclick=\\"delOrder(" + o.id + ")\\">Borrar</button>" +
+          "<button class='ok' style='margin:0;padding:4px 8px;' onclick=\"setStatus(" + o.id + ", 'approved')\">Aprobar</button>" +
+          "<button class='secondary' style='margin:0;padding:4px 8px;' onclick=\"setStatus(" + o.id + ", 'cancelled')\">Cancelar</button>" +
+          "<button class='danger' style='margin:0;padding:4px 8px;' onclick=\"delOrder(" + o.id + ")\">Borrar</button>" +
           "</div></td>" +
           "</tr>"
         );
