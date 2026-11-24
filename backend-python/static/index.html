@@ -259,14 +259,14 @@
       "X-Lab-Mode": labMode,
       "X-Test-Cycle": testCycle,
     };
-    if (currentUser?.email) h["X-User-Email"] = currentUser.email;
+    if (currentUser && currentUser.email) h["X-User-Email"] = currentUser.email;
     if (sessionToken) h["X-Session-Token"] = sessionToken;
     if (cleanToken && labMode === "clean") h["X-Clean-Token"] = cleanToken;
     return h;
   }
 
   function showApi(status, data) {
-    document.getElementById("apiOutput").textContent = `HTTP ${status}\n` + JSON.stringify(data, null, 2);
+    document.getElementById("apiOutput").textContent = "HTTP " + status + "\n" + JSON.stringify(data, null, 2);
   }
 
   function syncCycleBadge() {
@@ -294,7 +294,7 @@
 
     const logged = Boolean(currentUser);
     document.getElementById("sessionInfo").textContent = logged
-      ? `Usuario: ${currentUser.email} · Rol: ${currentUser.role} · Token sesión: ${sessionToken ? sessionToken.slice(0, 8) + "..." : "no"}`
+      ? "Usuario: " + currentUser.email + " · Rol: " + currentUser.role + " · Token sesión: " + (sessionToken ? sessionToken.slice(0, 8) + "..." : "no")
       : "Sin sesión activa · Token: ninguno";
 
     document.getElementById("btnLogout").disabled = !logged;
@@ -442,27 +442,38 @@
     await loadLogs();
   }
 
+  function escapeHtml(value) {
+    return String(value == null ? "" : value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
   function renderOrders() {
     const tbody = document.getElementById("ordersBody");
-    tbody.innerHTML = ordersCache.map((o) => `
-      <tr>
-        <td><strong>${o.order_code}</strong></td>
-        <td>${o.customer_email}</td>
-        <td>${o.amount}</td>
-        <td>${o.discount_pct}%</td>
-        <td><strong>${o.final_amount}</strong></td>
-        <td>${o.marketing_consent === 1 ? "Sí (1)" : `No (${o.marketing_consent})`}</td>
-        <td>${o.status}</td>
-        <td>${o.notes || ""}</td>
-        <td>
-          <div class="row-btns" style="margin:0;">
-            <button class="ok" style="margin:0;padding:4px 8px;" onclick="setStatus(${o.id}, 'approved')">Aprobar</button>
-            <button class="secondary" style="margin:0;padding:4px 8px;" onclick="setStatus(${o.id}, 'cancelled')">Cancelar</button>
-            <button class="danger" style="margin:0;padding:4px 8px;" onclick="delOrder(${o.id})">Borrar</button>
-          </div>
-        </td>
-      </tr>
-    `).join("");
+    tbody.innerHTML = ordersCache.map((o) => {
+      const rgpdLabel = o.marketing_consent === 1 ? "Sí (1)" : "No (" + o.marketing_consent + ")";
+      return (
+        "<tr>" +
+        "<td><strong>" + escapeHtml(o.order_code) + "</strong></td>" +
+        "<td>" + escapeHtml(o.customer_email) + "</td>" +
+        "<td>" + escapeHtml(o.amount) + "</td>" +
+        "<td>" + escapeHtml(o.discount_pct) + "%</td>" +
+        "<td><strong>" + escapeHtml(o.final_amount) + "</strong></td>" +
+        "<td>" + escapeHtml(rgpdLabel) + "</td>" +
+        "<td>" + escapeHtml(o.status) + "</td>" +
+        "<td>" + escapeHtml(o.notes || "") + "</td>" +
+        "<td>" +
+        "<div class='row-btns' style='margin:0;'>" +
+        "<button class='ok' style='margin:0;padding:4px 8px;' onclick=\"setStatus(" + o.id + ", 'approved')\">Aprobar</button>" +
+        "<button class='secondary' style='margin:0;padding:4px 8px;' onclick=\"setStatus(" + o.id + ", 'cancelled')\">Cancelar</button>" +
+        "<button class='danger' style='margin:0;padding:4px 8px;' onclick=\"delOrder(" + o.id + ")\">Borrar</button>" +
+        "</div>" +
+        "</td>" +
+        "</tr>"
+      );
+    }).join("");
   }
 
   async function loadOrders() {
@@ -488,7 +499,7 @@
   }
 
   async function setStatus(orderId, status) {
-    const res = await fetch(`/orders/${orderId}/status`, {
+    const res = await fetch("/orders/" + orderId + "/status", {
       method: "PATCH",
       headers: headers(),
       body: JSON.stringify({ status }),
@@ -500,7 +511,7 @@
   }
 
   async function delOrder(orderId) {
-    const res = await fetch(`/orders/${orderId}`, { method: "DELETE", headers: headers() });
+    const res = await fetch("/orders/" + orderId, { method: "DELETE", headers: headers() });
     const data = await res.json();
     showApi(res.status, data);
     await loadOrders();
@@ -509,25 +520,25 @@
 
   function renderLogs() {
     const tbody = document.getElementById("logsBody");
-    tbody.innerHTML = logsCache.map((l) => `
-      <tr>
-        <td><strong>${l.trace_code}</strong></td>
-        <td>${l.created_at}</td>
-        <td>${l.test_cycle || "-"}</td>
-        <td>${l.lab_mode}</td>
-        <td>${l.actor_email}</td>
-        <td>${l.role}</td>
-        <td>${l.action}</td>
-        <td>${l.status_code}</td>
-        <td>${l.detail}</td>
-      </tr>
-    `).join("");
+    tbody.innerHTML = logsCache.map((l) => (
+      "<tr>" +
+      "<td><strong>" + escapeHtml(l.trace_code) + "</strong></td>" +
+      "<td>" + escapeHtml(l.created_at) + "</td>" +
+      "<td>" + escapeHtml(l.test_cycle || "-") + "</td>" +
+      "<td>" + escapeHtml(l.lab_mode) + "</td>" +
+      "<td>" + escapeHtml(l.actor_email) + "</td>" +
+      "<td>" + escapeHtml(l.role) + "</td>" +
+      "<td>" + escapeHtml(l.action) + "</td>" +
+      "<td>" + escapeHtml(l.status_code) + "</td>" +
+      "<td>" + escapeHtml(l.detail) + "</td>" +
+      "</tr>"
+    )).join("");
   }
 
   async function loadLogs() {
     const limit = document.getElementById("logLimit").value;
     const actor = encodeURIComponent(document.getElementById("actorFilter").value || "");
-    const res = await fetch(`/audit-logs?limit=${limit}&actor_filter=${actor}`, { headers: headers() });
+    const res = await fetch("/audit-logs?limit=" + limit + "&actor_filter=" + actor, { headers: headers() });
     const data = await res.json();
     if (res.ok) {
       logsCache = data.logs || [];
@@ -544,35 +555,3 @@
       return logSortAsc
         ? String(a[field]).localeCompare(String(b[field]))
         : String(b[field]).localeCompare(String(a[field]));
-    });
-    renderLogs();
-  }
-
-  async function inspectDb() {
-    const res = await fetch("/db/inspect?sample_limit=8", { headers: headers() });
-    const data = await res.json();
-    showApi(res.status, data);
-    document.getElementById("dbOutput").textContent = JSON.stringify(data, null, 2);
-    await loadLogs();
-  }
-
-  async function generateSynthetic() {
-    const profile = document.getElementById("synthProfile").value;
-    const count = parseInt(document.getElementById("synthCount").value, 10);
-    const res = await fetch("/test-data/generate", {
-      method: "POST",
-      headers: headers(),
-      body: JSON.stringify({ profile, count }),
-    });
-    const data = await res.json();
-    showApi(res.status, data);
-    if (res.ok) {
-      await loadOrders();
-      await loadLogs();
-    }
-  }
-
-  syncUiState();
-</script>
-</body>
-</html>
