@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pearson QA Risk Lab — Portal de Usuario</title>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; margin: 24px; background: #0f172a; color: #e2e8f0; }
+    h1, h2, h3 { margin-top: 0; color: #f8fafc; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; margin-bottom: 20px; }
+    .card { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 16px; }
+    label { display: block; font-size: 0.85rem; margin-top: 10px; color: #cbd5e1; }
+    input, select, textarea, button { width: 100%; box-sizing: border-box; margin-top: 4px; padding: 8px 10px; border-radius: 6px; border: 1px solid #475569; font-size: 0.9rem; }
+    input, select, textarea { background: #0f172a; color: #f8fafc; }
+    button { background: #2563eb; color: #fff; border: none; font-weight: 600; cursor: pointer; margin-top: 12px; }
+    button:hover { background: #1d4ed8; }
+    button.secondary { background: #475569; }
+    button.secondary:hover { background: #334155; }
+    button.danger { background: #dc2626; width: auto; padding: 5px 10px; margin-top: 0; }
+    button.small { width: auto; padding: 5px 10px; margin-top: 0; }
+    .badge { display: inline-block; padding: 3px 8px; border-radius: 999px; font-size: 0.8rem; font-weight: 700; background: #0ea5e9; color: #082f49; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.88rem; }
+    th, td { border-bottom: 1px solid #334155; padding: 8px; text-align: left; }
+    pre { background: #020617; border: 1px solid #334155; border-radius: 8px; padding: 12px; overflow-x: auto; font-size: 0.82rem; color: #93c5fd; }
+    .row-actions { display: flex; gap: 6px; align-items: center; }
+  </style>
+</head>
+<body>
+  <h1>Pearson QA Risk Lab — Portal de Usuario</h1>
+
+  <div class="grid">
+    <div class="card">
+      <h2>1. Iniciar sesión</h2>
+      <label>Correo electrónico</label>
+      <input id="loginEmail" type="email" value="cliente1@ejemplo.com" />
+      <label>Contraseña</label>
+      <input id="loginPassword" type="password" value="Cliente123!" />
+      <button onclick="doLogin()">Entrar (/login)</button>
+      <p style="margin-top:12px;">
+        Usuario activo: <strong id="activeUser">ninguno</strong> · Rol: <span id="activeRole" class="badge">-</span>
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>2. Crear pedido / Evaluar riesgo</h2>
+      <label>Correo del cliente (customer_email)</label>
+      <input id="orderEmail" type="email" value="cliente1@ejemplo.com" />
+      <label>Importe bruto (amount)</label>
+      <input id="orderAmount" type="number" step="0.01" value="150" />
+      <label>Descuento % (discount_pct, 0-100)</label>
+      <input id="orderDiscount" type="number" step="0.1" value="10" />
+      <label>Consentimiento marketing (0 = No, 1 = Sí)</label>
+      <select id="orderConsent">
+        <option value="0">0 - Sin consentimiento</option>
+        <option value="1">1 - Con consentimiento</option>
+      </select>
+      <label>Notas (notes)</label>
+      <textarea id="orderNotes" rows="2" placeholder="Ej. Entrega urgente o datos de contacto..."></textarea>
+      <div style="display:flex; gap:8px;">
+        <button class="secondary" onclick="checkRisk()">Evaluar Riesgo/GDPR</button>
+        <button onclick="createOrder()">Crear Pedido (POST /orders)</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:20px;">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2 style="margin:0;">3. Pedidos (GET /orders)</h2>
+      <button class="small" onclick="loadOrders()">Actualizar lista</button>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Cliente</th>
+          <th>Bruto</th>
+          <th>Desc. %</th>
+          <th>Final</th>
+          <th>Estado</th>
+          <th>RGPD</th>
+          <th>Notas</th>
+          <th>Acciones (admin)</th>
+        </tr>
+      </thead>
+      <tbody id="ordersBody">
+        <tr><td colspan="9">Inicia sesión para consultar pedidos.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>Última respuesta de la API (HTTP + JSON)</h3>
+    <pre id="outputBox">Listo para probar...</pre>
+  </div>
+
+  <script>
+    let currentEmail = "";
+    let currentRole = "";
+
+    function showOutput(status, data) {
+      document.getElementById("outputBox").textContent =
+        `HTTP ${status}\n` + JSON.stringify(data, null, 2);
+    }
+
+    function authHeaders(extra = {}) {
+      const h = { "Content-Type": "application/json", ...extra };
+      if (currentEmail) h["X-User-Email"] = currentEmail;
+      return h;
+    }
+
+    async function doLogin() {
+      const email = document.getElementById("loginEmail").value.trim();
+      const password = document.getElementById("loginPassword").value;
+      const res = await fetch("/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password })
+      });
+      const data = await res.json();
+      showOutput(res.status, data);
+      if (res.ok && data.authenticated) {
+        currentEmail = data.email;
+        currentRole = data.role;
+        document.getElementById("activeUser").textContent = currentEmail;
+        document.getElementById("activeRole").textContent = currentRole;
+        document.getElementById("orderEmail").value = currentEmail;
+        await loadOrders();
+      }
+    }
+
+    function getOrderPayload() {
+      return {
+        customer_email: document.getElementById("orderEmail").value.trim(),
+        amount: parseFloat(document.getElementById("orderAmount").value),
+        discount_pct: parseFloat(document.getElementById("orderDiscount").value),
+        marketing_consent: parseInt(document.getElementById("orderConsent").value, 10),
+        notes: document.getElementById("orderNotes").value
+      };
+    }
+
+    async function checkRisk() {
+      const res = await fetch("/orders/ai-risk-check", {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify(getOrderPayload())
+      });
+      const data = await res.json();
+      showOutput(res.status, data);
+    }
+
+    async function createOrder() {
+      const res = await fetch("/orders", {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify(getOrderPayload())
+      });
+      const data = await res.json();
+      showOutput(res.status, data);
+      if (res.ok) await loadOrders();
+    }
+
+    async function loadOrders() {
+      const res = await fetch("/orders", {
+        headers: authHeaders()
+      });
+      const data = await res.json();
+      showOutput(res.status, data);
+      const tbody = document.getElementById("ordersBody");
+      tbody.innerHTML = "";
+      if (!res.ok || !data.orders || data.orders.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="9">${data.detail || "Sin pedidos visibles para este usuario."}</td></tr>`;
+        return;
+      }
+      for (const o of data.orders) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${o.id}</td>
+          <td>${o.customer_email}</td>
+          <td>${o.amount}</td>
+          <td>${o.discount_pct}%</td>
+          <td>${o.final_amount}</td>
+          <td>${o.status}</td>
+          <td>${o.marketing_consent}</td>
+          <td>${o.notes || ""}</td>
+          <td>
+            <div class="row-actions">
+              <button class="small secondary" onclick="changeStatus(${o.id}, 'approved')">Aprobar</button>
+              <button class="small secondary" onclick="changeStatus(${o.id}, 'cancelled')">Cancelar</button>
+              <button class="danger" onclick="deleteOrder(${o.id})">Borrar</button>
+            </div>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      }
+    }
+
+    async function changeStatus(orderId, status) {
+      const res = await fetch(`/orders/${orderId}/status`, {
+        method: "PATCH",
+        headers: authHeaders(),
+        body: JSON.stringify({ status })
+      });
+      const data = await res.json();
+      showOutput(res.status, data);
+      if (res.ok) await loadOrders();
+    }
+
+    async function deleteOrder(orderId) {
+      const res = await fetch(`/orders/${orderId}`, {
+        method: "DELETE",
+        headers: authHeaders()
+      });
+      const data = await res.json();
+      showOutput(res.status, data);
+      if (res.ok) await loadOrders();
+    }
+  </script>
+</body>
+</html>
