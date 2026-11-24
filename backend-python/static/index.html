@@ -3,186 +3,204 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Pearson QA Risk Lab — Portal de Usuario</title>
+  <title>Laboratorio QA, Seguridad y Riesgo — 3 Ciclos / Visor BD / Sintéticos</title>
   <style>
-    body { font-family: system-ui, -apple-system, sans-serif; margin: 24px; background: #0f172a; color: #e2e8f0; }
-    h1, h2, h3 { margin-top: 0; color: #f8fafc; }
-    .top-banner {
-      display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;
-      background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 14px 18px; margin-bottom: 18px;
+    :root {
+      --bg: #0f172a; --card: #1e293b; --card-2: #0b1220;
+      --text: #f8fafc; --muted: #94a3b8; --border: #334155;
+      --accent: #38bdf8;
     }
-    .env-pill { padding: 6px 12px; border-radius: 999px; font-weight: 700; font-size: 0.85rem; }
-    .env-buggy { background: #78350f; color: #fde68a; border: 1px solid #f59e0b; }
-    .env-clean { background: #064e3b; color: #a7f3d0; border: 1px solid #10b981; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; margin-bottom: 20px; }
-    .card { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 16px; transition: opacity 0.2s ease, filter 0.2s ease; }
-    .card.locked {
-      opacity: 0.42;
-      filter: grayscale(85%);
-      background: #161e2e;
-      border-color: #263145;
-      pointer-events: none;
-      user-select: none;
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: var(--bg); color: var(--text); padding: 20px; line-height: 1.45;
     }
-    .locked-hint { font-size: 0.82rem; color: #94a3b8; margin-bottom: 10px; font-style: italic; }
-    label { display: block; font-size: 0.85rem; margin-top: 10px; color: #cbd5e1; }
-    input, select, textarea, button { width: 100%; box-sizing: border-box; margin-top: 4px; padding: 8px 10px; border-radius: 6px; border: 1px solid #475569; font-size: 0.9rem; }
-    input, select, textarea { background: #0f172a; color: #f8fafc; }
-    button { background: #2563eb; color: #fff; border: none; font-weight: 600; cursor: pointer; margin-top: 12px; }
-    button:hover { background: #1d4ed8; }
-    button.secondary { background: #475569; }
-    button.secondary:hover { background: #334155; }
-    button.success { background: #059669; }
-    button.success:hover { background: #047857; }
-    button.danger { background: #dc2626; width: auto; padding: 5px 10px; margin-top: 0; }
-    button.small { width: auto; padding: 5px 10px; margin-top: 0; }
-    .btn-row { display: flex; gap: 8px; flex-wrap: wrap; }
-    .badge { display: inline-block; padding: 3px 8px; border-radius: 999px; font-size: 0.8rem; font-weight: 700; background: #0ea5e9; color: #082f49; }
-    .badge.muted { background: #334155; color: #94a3b8; }
-    table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.85rem; }
-    th, td { border-bottom: 1px solid #334155; padding: 8px; text-align: left; }
-    .sort-btn { background: transparent; color: #93c5fd; border: 1px solid #334155; padding: 2px 6px; margin-top: 0; width: auto; font-size: 0.78rem; }
-    .sort-btn:hover { background: #0f172a; }
-    pre { background: #020617; border: 1px solid #334155; border-radius: 8px; padding: 12px; overflow-x: auto; font-size: 0.82rem; color: #93c5fd; }
-    .row-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-    .header-bar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
-    .modal-box { background: #0f172a; border: 1px solid #10b981; border-radius: 8px; padding: 12px; margin-top: 12px; }
+    .container { max-width: 1260px; margin: 0 auto; }
+    .topbar {
+      display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center;
+      gap: 12px; background: var(--card); border: 1px solid var(--border);
+      border-radius: 12px; padding: 14px 18px; margin-bottom: 16px;
+    }
+    .badge {
+      display: inline-block; padding: 4px 10px; border-radius: 999px;
+      font-weight: 700; font-size: 11.5px; letter-spacing: 0.3px;
+    }
+    .badge-buggy { background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid #f59e0b; }
+    .badge-clean { background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid #22c55e; }
+    .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 16px; margin-bottom: 16px; }
+    .card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 12px; padding: 16px; margin-bottom: 16px;
+    }
+    .locked { opacity: 0.45; pointer-events: none; filter: grayscale(0.5); }
+    h2 { margin: 0 0 10px 0; font-size: 16px; color: var(--accent); }
+    label { display: block; font-size: 12px; color: var(--muted); margin-top: 8px; margin-bottom: 4px; }
+    input, select, textarea, button {
+      width: 100%; padding: 8px 10px; border-radius: 8px;
+      border: 1px solid var(--border); background: var(--card-2); color: var(--text); font-size: 13px;
+    }
+    button { cursor: pointer; font-weight: 600; background: #0284c7; border: none; margin-top: 8px; }
+    button:hover { background: #0369a1; }
+    button.secondary { background: #334155; }
+    button.secondary:hover { background: #475569; }
+    button.danger { background: #b91c1c; }
+    button.danger:hover { background: #991b1b; }
+    button.ok { background: #15803d; }
+    button.ok:hover { background: #166534; }
+    .row-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+    .row-btns button, .row-btns > div { flex: 1; min-width: 110px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12px; }
+    th, td { border-bottom: 1px solid var(--border); padding: 7px 8px; text-align: left; }
+    th { color: var(--muted); cursor: pointer; user-select: none; }
+    pre {
+      background: var(--card-2); border: 1px solid var(--border); border-radius: 8px;
+      padding: 12px; overflow-x: auto; font-size: 12px; max-height: 280px; margin: 0;
+    }
+    .small { font-size: 12px; color: var(--muted); }
+    .inline-bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; margin-top: 8px; }
+    .inline-bar > div { flex: 1; min-width: 145px; }
+    .inline-bar button { width: auto; padding: 8px 14px; }
   </style>
 </head>
 <body>
-  <div class="top-banner">
+<div class="container">
+  <div class="topbar">
     <div>
-      <h1 style="margin:0;">Pearson QA Risk Lab — Portal de Usuario</h1>
-      <div style="font-size:0.85rem; color:#94a3b8; margin-top:4px;">
-        Entorno activo: <span id="envBadge" class="env-pill env-buggy">PRÁCTICAS (BUGGY)</span>
+      <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+        <strong>Laboratorio QA, Seguridad y Riesgo</strong>
+        <span id="modeBadge" class="badge badge-buggy">PRÁCTICAS (BUGGY)</span>
+        <span id="cycleBadge" class="badge badge-buggy">CICLO: ALL_ERRORS (SIN CONTROLES)</span>
       </div>
+      <div class="small" id="sessionInfo">Sin sesión activa · Token: ninguno</div>
     </div>
-    <div class="row-actions">
-      <button id="toggleCleanAuthBtn" class="small success" onclick="toggleCleanForm()">Desbloquear modo solucionado (CLEAN)</button>
-      <button id="switchBuggyBtn" class="small secondary" onclick="switchToBuggy()" style="display:none;">Volver a PRÁCTICAS (BUGGY)</button>
-      <button id="resetLabBtn" class="small danger" onclick="resetLab()">Reiniciar datos (admin)</button>
+    <div class="inline-bar" style="margin-top:0; max-width:650px;">
+      <div style="min-width:230px;">
+        <label for="cycleSelect" style="margin-top:0;">Ciclo de pruebas</label>
+        <select id="cycleSelect" onchange="changeCycle()">
+          <option value="all_errors">1. all_errors (todos los errores / sin controles)</option>
+          <option value="half_errors">2. half_errors (mitad de fallos / controles parciales)</option>
+          <option value="all_clean">3. all_clean (todo bien / con controles)</option>
+        </select>
+      </div>
+      <button class="secondary" onclick="switchToBuggy()">Volver a BUGGY</button>
+      <button class="danger" onclick="resetLab()">Reiniciar datos (admin)</button>
     </div>
   </div>
 
-  <div id="cleanAuthPanel" class="modal-box" style="display:none; margin-bottom:18px;">
-    <h3 style="margin-bottom:6px;">Acceso a Modo Solucionado (CLEAN)</h3>
-    <div style="font-size:0.83rem; color:#cbd5e1; margin-bottom:8px;">
-      Introduce usuario y contraseña autorizados para habilitar el modo solucionado.
-    </div>
-    <div class="grid" style="margin-bottom:0; gap:10px;">
+  <div class="card">
+    <h2>Desbloqueo de Modo Solucionado (CLEAN)</h2>
+    <div class="small">Por defecto el entorno inicia en <strong>BUGGY</strong>. Introduce usuario y contraseña para activar <strong>CLEAN</strong>.</div>
+    <div class="inline-bar">
       <div>
-        <label style="margin-top:0;">Usuario modo solucionado</label>
-        <input id="cleanUserInput" type="text" placeholder="instructor@lab.local" />
+        <label for="cleanUser">Usuario CLEAN</label>
+        <input id="cleanUser" value="instructor@lab.local" />
       </div>
       <div>
-        <label style="margin-top:0;">Contraseña modo solucionado</label>
-        <input id="cleanPassInput" type="password" placeholder="••••••••••••" />
+        <label for="cleanPass">Contraseña CLEAN</label>
+        <input id="cleanPass" type="password" value="CleanMode2026!" />
       </div>
-    </div>
-    <div class="btn-row">
-      <button class="small success" onclick="unlockCleanMode()">Validar y activar CLEAN</button>
-      <button class="small secondary" onclick="toggleCleanForm()">Cancelar</button>
+      <div>
+        <button class="ok" onclick="unlockClean()">Activar modo CLEAN</button>
+      </div>
     </div>
   </div>
 
-  <div class="grid">
+  <div class="grid-2">
     <div class="card">
-      <h2>1. Iniciar sesión / Cerrar sesión</h2>
-      <label>Correo electrónico</label>
-      <input id="loginEmail" type="email" value="cliente1@ejemplo.com" />
-      <label>Contraseña</label>
-      <input id="loginPassword" type="password" value="Cliente123!" />
-      <div class="btn-row">
-        <button onclick="doLogin()">Entrar (/login)</button>
-        <button id="logoutBtn" class="secondary" onclick="doLogout()" disabled>Cerrar sesión</button>
+      <h2>1. Sesión (Login / Logout)</h2>
+      <label for="loginEmail">Correo de usuario</label>
+      <input id="loginEmail" value="admin@ejemplo.com" />
+      <label for="loginPass">Contraseña</label>
+      <input id="loginPass" type="password" value="admin123" />
+      <div class="row-btns">
+        <button onclick="doLogin()">Iniciar sesión</button>
+        <button id="btnLogout" class="secondary" onclick="doLogout()" disabled>Cerrar sesión</button>
       </div>
-      <p style="margin-top:12px; margin-bottom:0;">
-        Usuario activo: <strong id="activeUser">ninguno</strong> · Rol: <span id="activeRole" class="badge muted">sin sesión</span>
-      </p>
+      <div class="small" style="margin-top:8px;">
+        Usuarios: <code>admin@ejemplo.com</code> / <code>cliente1@ejemplo.com</code> / <code>cliente2@ejemplo.com</code> / <code>viewer@ejemplo.com</code>
+      </div>
     </div>
 
-    <div id="secRiskOrder" class="card locked">
-      <h2>2. Crear pedido / Evaluar riesgo</h2>
-      <div class="locked-hint">Bloqueado hasta iniciar sesión.</div>
-      <label>Correo del cliente (customer_email)</label>
-      <input id="orderEmail" type="email" value="cliente1@ejemplo.com" />
-      <label>Importe bruto (amount)</label>
-      <input id="orderAmount" type="number" step="0.01" value="150" />
-      <label>Descuento % (discount_pct, 0-100)</label>
-      <input id="orderDiscount" type="number" step="0.1" value="10" />
-      <label>Consentimiento marketing (0 = No, 1 = Sí)</label>
-      <select id="orderConsent">
-        <option value="0">0 - Sin consentimiento</option>
-        <option value="1">1 - Con consentimiento</option>
-      </select>
-      <label>Notas (notes)</label>
-      <textarea id="orderNotes" rows="2" placeholder="Ej. Entrega urgente o datos de contacto..."></textarea>
-      <div class="btn-row">
-        <button class="secondary" onclick="checkRisk()">Evaluar Riesgo/GDPR</button>
-        <button onclick="createOrder()">Crear Pedido (POST /orders)</button>
+    <div class="card" id="secCreate">
+      <h2>2. Crear Pedido / Evaluar Riesgo y RGPD</h2>
+      <div class="row-btns" style="margin-bottom:6px;">
+        <button type="button" class="ok" onclick="fillGoodData()">Cargar datos buenos</button>
+        <button type="button" class="danger" onclick="fillBadData()">Cargar datos malos</button>
+      </div>
+      <label for="custEmail">Correo del cliente</label>
+      <input id="custEmail" type="text" value="cliente1@ejemplo.com" />
+      <div class="row-btns">
+        <div>
+          <label for="amount">Importe (€)</label>
+          <input id="amount" type="number" step="0.01" value="200" />
+        </div>
+        <div>
+          <label for="discount">Descuento (%)</label>
+          <input id="discount" type="number" step="0.1" value="25" />
+        </div>
+      </div>
+      <label for="consent">Consentimiento marketing (0 = No, 1 = Sí; o inválido en pruebas)</label>
+      <input id="consent" type="number" step="1" value="0" />
+      <label for="notes">Notas (notes)</label>
+      <textarea id="notes" rows="2" placeholder="Ej. Entrega urgente o datos de prueba..."></textarea>
+      <div class="row-btns">
+        <button type="button" class="secondary" onclick="checkRisk()">Evaluar Riesgo/GDPR</button>
+        <button type="button" onclick="createOrder()">Crear pedido</button>
       </div>
     </div>
   </div>
 
-  <div id="secOrders" class="card locked" style="margin-bottom:20px;">
-    <div class="header-bar">
-      <h2 style="margin:0;">3. Pedidos (GET /orders)</h2>
-      <div class="row-actions">
-        <button class="sort-btn" onclick="sortOrders('id')">Ordenar ID_PED</button>
-        <button class="sort-btn" onclick="sortOrders('customer_email')">Ordenar Cliente</button>
-        <button class="sort-btn" onclick="sortOrders('final_amount')">Ordenar Final</button>
-        <button class="sort-btn" onclick="sortOrders('status')">Ordenar Estado</button>
-        <button class="small" onclick="loadOrders()">Actualizar lista</button>
-      </div>
+  <div class="card" id="secOrders">
+    <h2>3. Pedidos (ID_PED) — Incluye datos buenos y malos semilla</h2>
+    <div class="row-btns" style="max-width:640px;">
+      <button class="secondary" onclick="loadOrders()">Actualizar lista</button>
+      <button class="secondary" onclick="sortOrders('id')">Ordenar ID_PED</button>
+      <button class="secondary" onclick="sortOrders('customer_email')">Ordenar Cliente</button>
+      <button class="secondary" onclick="sortOrders('final_amount')">Ordenar Final</button>
     </div>
-    <div class="locked-hint" style="margin-top:6px;">Bloqueado hasta iniciar sesión.</div>
     <table>
       <thead>
         <tr>
-          <th>ID_PED</th>
-          <th>Cliente</th>
+          <th onclick="sortOrders('id')">ID_PED</th>
+          <th onclick="sortOrders('customer_email')">Cliente</th>
           <th>Bruto</th>
           <th>Desc. %</th>
-          <th>Final</th>
-          <th>Estado</th>
+          <th onclick="sortOrders('final_amount')">Final</th>
           <th>RGPD</th>
+          <th>Estado</th>
           <th>Notas</th>
-          <th>Acciones (admin)</th>
+          <th>Acciones</th>
         </tr>
       </thead>
-      <tbody id="ordersBody">
-        <tr><td colspan="9">Inicia sesión para consultar pedidos.</td></tr>
-      </tbody>
+      <tbody id="ordersBody"></tbody>
     </table>
   </div>
 
-  <div id="secAudit" class="card locked" style="margin-bottom:20px;">
-    <div class="header-bar">
+  <div class="card" id="secLogs">
+    <h2>4. Trazabilidad (ID_TRA)</h2>
+    <div class="inline-bar">
       <div>
-        <h2 style="margin:0;">4. Trazabilidad (GET /audit-logs)</h2>
-        <div id="auditScopeText" style="font-size:0.82rem; color:#94a3b8; margin-top:4px;">
-          Inicia sesión para ver tu trazabilidad.
-        </div>
-      </div>
-      <div class="row-actions">
-        <select id="auditLimitSelect" onchange="loadAuditLogs()" style="width:115px; margin-top:0;">
-          <option value="25" selected>Ver 25 logs</option>
-          <option value="50">Ver 50 logs</option>
-          <option value="100">Ver 100 logs</option>
+        <label for="logLimit">Mostrar registros</label>
+        <select id="logLimit" onchange="loadLogs()">
+          <option value="25">25</option>
+          <option value="50">50</option>
+          <option value="100">100</option>
         </select>
-        <input id="auditUserFilter" type="text" placeholder="Filtrar usuario (admin)..." style="width:185px; margin-top:0; display:none;" />
-        <button class="sort-btn" onclick="sortAudit('id')">Ordenar ID_TRA</button>
-        <button class="sort-btn" onclick="sortAudit('actor_email')">Ordenar Usuario</button>
-        <button class="sort-btn" onclick="sortAudit('action')">Ordenar Acción</button>
-        <button class="sort-btn" onclick="sortAudit('status_code')">Ordenar HTTP</button>
-        <button class="small" onclick="loadAuditLogs()">Actualizar trazabilidad</button>
+      </div>
+      <div>
+        <label for="actorFilter">Filtrar por usuario (admin)</label>
+        <input id="actorFilter" placeholder="Ej. cliente1@ejemplo.com" />
+      </div>
+      <div>
+        <button class="secondary" onclick="loadLogs()">Consultar trazabilidad</button>
       </div>
     </div>
     <table>
       <thead>
         <tr>
-          <th>ID_TRA</th>
-          <th>Fecha/Hora (UTC)</th>
+          <th onclick="sortLogs('id')">ID_TRA</th>
+          <th>Fecha/Hora</th>
+          <th>Ciclo</th>
           <th>Modo</th>
           <th>Usuario</th>
           <th>Rol</th>
@@ -191,361 +209,370 @@
           <th>Detalle</th>
         </tr>
       </thead>
-      <tbody id="auditBody">
-        <tr><td colspan="8">Sin trazabilidad cargada.</td></tr>
-      </tbody>
+      <tbody id="logsBody"></tbody>
     </table>
   </div>
 
-  <div class="card">
-    <h3>Última respuesta de la API (HTTP + JSON)</h3>
-    <pre id="outputBox">Inicia sesión en el bloque 1 para desbloquear los bloques 2, 3 y 4.</pre>
+  <div class="grid-2">
+    <div class="card" id="secDb">
+      <h2>5. Visor Controlado de Base de Datos (SQLite)</h2>
+      <div class="small">Inspecciona conteos, esquema y registros de <code>users</code>, <code>orders</code> y <code>audit_logs</code>.</div>
+      <button class="secondary" onclick="inspectDb()">Inspeccionar base de datos</button>
+      <pre id="dbOutput" style="margin-top:10px;">Sin inspección ejecutada todavía.</pre>
+    </div>
+
+    <div class="card" id="secSynth">
+      <h2>6. Generador de Datos Sintéticos para Pruebas</h2>
+      <label for="synthProfile">Perfil de datos sintéticos</label>
+      <select id="synthProfile">
+        <option value="mixto">Mixto (buenos + extremos + RGPD/malos)</option>
+        <option value="normal">Normales (buenos)</option>
+        <option value="extremos">Límite / Extremos (0%, 15%, 25%, 100%)</option>
+        <option value="rgpd">RGPD / Malos (consentimiento 0, PII, campos rotos)</option>
+      </select>
+      <label for="synthCount">Cantidad de pedidos (1-20)</label>
+      <input id="synthCount" type="number" min="1" max="20" value="4" />
+      <button class="ok" onclick="generateSynthetic()">Generar lote sintético</button>
+    </div>
   </div>
 
-  <script>
-    let currentEmail = "";
-    let currentRole = "";
-    let labMode = "buggy";
-    let cleanToken = "";
+  <div class="card">
+    <h2>Última respuesta de la API (HTTP + JSON)</h2>
+    <pre id="apiOutput">Listo para ejecutar pruebas.</pre>
+  </div>
+</div>
 
-    let ordersCache = [];
-    let orderSortField = "id";
-    let orderSortAsc = true;
+<script>
+  let labMode = "buggy";
+  let testCycle = "all_errors";
+  let cleanToken = null;
+  let sessionToken = null;
+  let currentUser = null;
+  let ordersCache = [];
+  let logsCache = [];
+  let orderSortAsc = false;
+  let logSortAsc = false;
 
-    let auditCache = [];
-    let auditSortField = "id";
-    let auditSortAsc = false;
+  function headers() {
+    const h = {
+      "Content-Type": "application/json",
+      "X-Lab-Mode": labMode,
+      "X-Test-Cycle": testCycle,
+    };
+    if (currentUser?.email) h["X-User-Email"] = currentUser.email;
+    if (sessionToken) h["X-Session-Token"] = sessionToken;
+    if (cleanToken && labMode === "clean") h["X-Clean-Token"] = cleanToken;
+    return h;
+  }
 
-    function updateEnvUI() {
-      const badge = document.getElementById("envBadge");
-      const switchBuggyBtn = document.getElementById("switchBuggyBtn");
-      if (labMode === "clean") {
-        badge.textContent = "SOLUCIONADO (CLEAN)";
-        badge.className = "env-pill env-clean";
-        switchBuggyBtn.style.display = "inline-block";
-      } else {
-        badge.textContent = "PRÁCTICAS (BUGGY)";
-        badge.className = "env-pill env-buggy";
-        switchBuggyBtn.style.display = "none";
-      }
+  function showApi(status, data) {
+    document.getElementById("apiOutput").textContent = `HTTP ${status}\n` + JSON.stringify(data, null, 2);
+  }
+
+  function syncCycleBadge() {
+    const cBadge = document.getElementById("cycleBadge");
+    const labels = {
+      all_errors: { text: "CICLO: ALL_ERRORS (SIN CONTROLES)", cls: "badge badge-buggy" },
+      half_errors: { text: "CICLO: HALF_ERRORS (CONTROLES PARCIALES)", cls: "badge badge-buggy" },
+      all_clean: { text: "CICLO: ALL_CLEAN (CON CONTROLES)", cls: "badge badge-clean" },
+    };
+    const cfg = labels[testCycle] || labels.all_errors;
+    cBadge.textContent = cfg.text;
+    cBadge.className = cfg.cls;
+  }
+
+  function syncUiState() {
+    const badge = document.getElementById("modeBadge");
+    if (labMode === "clean") {
+      badge.textContent = "SOLUCIONADO (CLEAN)";
+      badge.className = "badge badge-clean";
+    } else {
+      badge.textContent = "PRÁCTICAS (BUGGY)";
+      badge.className = "badge badge-buggy";
     }
+    syncCycleBadge();
 
-    function toggleCleanForm() {
-      const panel = document.getElementById("cleanAuthPanel");
-      panel.style.display = panel.style.display === "none" ? "block" : "none";
+    const logged = Boolean(currentUser);
+    document.getElementById("sessionInfo").textContent = logged
+      ? `Usuario: ${currentUser.email} · Rol: ${currentUser.role} · Token sesión: ${sessionToken ? sessionToken.slice(0, 8) + "..." : "no"}`
+      : "Sin sesión activa · Token: ninguno";
+
+    document.getElementById("btnLogout").disabled = !logged;
+    ["secCreate", "secOrders", "secLogs", "secDb", "secSynth"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (logged) el.classList.remove("locked");
+      else el.classList.add("locked");
+    });
+  }
+
+  async function changeCycle() {
+    testCycle = document.getElementById("cycleSelect").value;
+    syncUiState();
+    const res = await fetch("/cycle/set", {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ cycle: testCycle }),
+    });
+    const data = await res.json();
+    showApi(res.status, data);
+    if (currentUser) {
+      await loadOrders();
+      await loadLogs();
     }
+  }
 
-    async function unlockCleanMode() {
-      const username = document.getElementById("cleanUserInput").value.trim();
-      const password = document.getElementById("cleanPassInput").value;
-      const res = await fetch("/mode/clean-login", {
-        method: "POST",
-        headers: authHeaders(),
-        body: JSON.stringify({ username, password })
-      });
-      const data = await res.json();
-      showOutput(res.status, data);
-      if (res.ok && data.clean_unlocked) {
-        cleanToken = data.clean_token;
-        labMode = "clean";
-        document.getElementById("cleanPassInput").value = "";
-        document.getElementById("cleanAuthPanel").style.display = "none";
-        updateEnvUI();
-        if (currentEmail) {
-          await loadOrders();
-          await loadAuditLogs();
-        }
-      }
-    }
-
-    function switchToBuggy() {
-      labMode = "buggy";
-      updateEnvUI();
-      if (currentEmail) {
-        loadOrders();
-        loadAuditLogs();
-      }
-    }
-
-    function updateSessionUI() {
-      const loggedIn = Boolean(currentEmail);
-      const userEl = document.getElementById("activeUser");
-      const roleEl = document.getElementById("activeRole");
-      const logoutBtn = document.getElementById("logoutBtn");
-      const filterInput = document.getElementById("auditUserFilter");
-      const scopeText = document.getElementById("auditScopeText");
-
-      userEl.textContent = loggedIn ? currentEmail : "ninguno";
-      roleEl.textContent = loggedIn ? currentRole : "sin sesión";
-      roleEl.className = loggedIn ? "badge" : "badge muted";
-      logoutBtn.disabled = !loggedIn;
-
-      for (const id of ["secRiskOrder", "secOrders", "secAudit"]) {
-        document.getElementById(id).classList.toggle("locked", !loggedIn);
-      }
-
-      if (!loggedIn) {
-        ordersCache = [];
-        auditCache = [];
-        filterInput.style.display = "none";
-        filterInput.value = "";
-        scopeText.textContent = "Inicia sesión para ver tu trazabilidad.";
-        document.getElementById("ordersBody").innerHTML =
-          `<tr><td colspan="9">Inicia sesión para consultar pedidos.</td></tr>`;
-        document.getElementById("auditBody").innerHTML =
-          `<tr><td colspan="8">Sin trazabilidad cargada.</td></tr>`;
-      } else if (currentRole === "admin") {
-        filterInput.style.display = "inline-block";
-        scopeText.textContent = "Modo administrador: visualizando la trazabilidad de TODOS los usuarios.";
-      } else {
-        filterInput.style.display = "none";
-        filterInput.value = "";
-        scopeText.textContent = `Modo ${currentRole}: visualizando únicamente la trazabilidad de ${currentEmail}.`;
-      }
-    }
-
-    function showOutput(status, data) {
-      document.getElementById("outputBox").textContent =
-        `HTTP ${status}\n` + JSON.stringify(data, null, 2);
-    }
-
-    function authHeaders(extra = {}) {
-      const h = {
-        "Content-Type": "application/json",
-        "X-Lab-Mode": labMode,
-        ...extra
-      };
-      if (currentEmail) h["X-User-Email"] = currentEmail;
-      if (labMode === "clean" && cleanToken) h["X-Clean-Token"] = cleanToken;
-      return h;
-    }
-
-    async function doLogin() {
-      const email = document.getElementById("loginEmail").value.trim();
-      const password = document.getElementById("loginPassword").value;
-      const res = await fetch("/login", {
-        method: "POST",
-        headers: authHeaders(),
-        body: JSON.stringify({ email, password })
-      });
-      const data = await res.json();
-      showOutput(res.status, data);
-      if (res.ok && data.authenticated) {
-        currentEmail = data.email;
-        currentRole = data.role;
-        document.getElementById("orderEmail").value = currentEmail;
-        updateSessionUI();
+  async function unlockClean() {
+    const username = document.getElementById("cleanUser").value;
+    const password = document.getElementById("cleanPass").value;
+    const res = await fetch("/mode/clean-login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+    const data = await res.json();
+    showApi(res.status, data);
+    if (res.ok) {
+      cleanToken = data.clean_token;
+      labMode = "clean";
+      syncUiState();
+      if (currentUser) {
         await loadOrders();
-        await loadAuditLogs();
+        await loadLogs();
       }
     }
+  }
 
-    async function doLogout() {
-      if (!currentEmail) return;
-      const res = await fetch("/logout", {
-        method: "POST",
-        headers: authHeaders()
-      });
-      const data = await res.json();
-      showOutput(res.status, data);
-      currentEmail = "";
-      currentRole = "";
-      updateSessionUI();
+  function switchToBuggy() {
+    labMode = "buggy";
+    syncUiState();
+    if (currentUser) {
+      loadOrders();
+      loadLogs();
     }
+  }
 
-    async function resetLab() {
-      const res = await fetch("/reset-lab", {
-        method: "POST",
-        headers: authHeaders()
-      });
-      const data = await res.json();
-      showOutput(res.status, data);
-      if (res.ok && currentEmail) {
-        await loadOrders();
-        await loadAuditLogs();
-      }
+  async function doLogin() {
+    const email = document.getElementById("loginEmail").value;
+    const password = document.getElementById("loginPass").value;
+    const res = await fetch("/login", {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ email, password }),
+    });
+    const data = await res.json();
+    showApi(res.status, data);
+    if (res.ok) {
+      currentUser = { email: data.email, role: data.role };
+      sessionToken = data.session_token;
+      syncUiState();
+      await loadOrders();
+      await loadLogs();
     }
+  }
 
-    function getOrderPayload() {
-      return {
-        customer_email: document.getElementById("orderEmail").value.trim(),
-        amount: parseFloat(document.getElementById("orderAmount").value),
-        discount_pct: parseFloat(document.getElementById("orderDiscount").value),
-        marketing_consent: parseInt(document.getElementById("orderConsent").value, 10),
-        notes: document.getElementById("orderNotes").value
-      };
+  async function doLogout() {
+    const res = await fetch("/logout", { method: "POST", headers: headers() });
+    const data = await res.json();
+    showApi(res.status, data);
+    currentUser = null;
+    sessionToken = null;
+    ordersCache = [];
+    logsCache = [];
+    document.getElementById("ordersBody").innerHTML = "";
+    document.getElementById("logsBody").innerHTML = "";
+    syncUiState();
+  }
+
+  async function resetLab() {
+    const res = await fetch("/reset-lab", { method: "POST", headers: headers() });
+    const data = await res.json();
+    showApi(res.status, data);
+    if (res.ok) {
+      await loadOrders();
+      await loadLogs();
     }
+  }
 
-    async function checkRisk() {
-      const res = await fetch("/orders/ai-risk-check", {
-        method: "POST",
-        headers: authHeaders(),
-        body: JSON.stringify(getOrderPayload())
-      });
-      const data = await res.json();
-      showOutput(res.status, data);
-      await loadAuditLogs();
-    }
+  function fillGoodData() {
+    document.getElementById("custEmail").value = "cliente1@ejemplo.com";
+    document.getElementById("amount").value = "200";
+    document.getElementById("discount").value = "10";
+    document.getElementById("consent").value = "1";
+    document.getElementById("notes").value = "Pedido estándar válido sin datos personales";
+  }
 
-    async function createOrder() {
-      const res = await fetch("/orders", {
-        method: "POST",
-        headers: authHeaders(),
-        body: JSON.stringify(getOrderPayload())
-      });
-      const data = await res.json();
-      showOutput(res.status, data);
-      if (res.ok) await loadOrders();
-      await loadAuditLogs();
-    }
+  function fillBadData() {
+    document.getElementById("custEmail").value = "correo-invalido-sin-arroba";
+    document.getElementById("amount").value = "-120";
+    document.getElementById("discount").value = "140";
+    document.getElementById("consent").value = "9";
+    document.getElementById("notes").value = "Llamar al 600123456, DNI 12345678A <script>alert(1)</script>";
+  }
 
-    function compareValues(a, b, field, asc) {
-      const va = a[field];
-      const vb = b[field];
-      if (typeof va === "number" && typeof vb === "number") {
-        return asc ? va - vb : vb - va;
-      }
-      return asc
-        ? String(va ?? "").localeCompare(String(vb ?? ""))
-        : String(vb ?? "").localeCompare(String(va ?? ""));
-    }
+  function orderPayload() {
+    return {
+      customer_email: document.getElementById("custEmail").value,
+      amount: parseFloat(document.getElementById("amount").value || "0"),
+      discount_pct: parseFloat(document.getElementById("discount").value || "0"),
+      marketing_consent: parseInt(document.getElementById("consent").value || "0", 10),
+      notes: document.getElementById("notes").value,
+    };
+  }
 
-    function renderOrdersTable() {
-      const tbody = document.getElementById("ordersBody");
-      tbody.innerHTML = "";
-      if (!ordersCache.length) {
-        tbody.innerHTML = `<tr><td colspan="9">Sin pedidos visibles para este usuario.</td></tr>`;
-        return;
-      }
-      const sorted = [...ordersCache].sort((a, b) => compareValues(a, b, orderSortField, orderSortAsc));
-      for (const o of sorted) {
-        const idPed = o.id_ped || `ID_PED-${o.id}`;
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-          <td><strong>${idPed}</strong></td>
-          <td>${o.customer_email}</td>
-          <td>${o.amount}</td>
-          <td>${o.discount_pct}%</td>
-          <td>${o.final_amount}</td>
-          <td>${o.status}</td>
-          <td>${o.marketing_consent}</td>
-          <td>${o.notes || ""}</td>
-          <td>
-            <div class="row-actions">
-              <button class="small secondary" onclick="changeStatus(${o.id}, 'approved')">Aprobar</button>
-              <button class="small secondary" onclick="changeStatus(${o.id}, 'cancelled')">Cancelar</button>
-              <button class="danger" onclick="deleteOrder(${o.id})">Borrar</button>
-            </div>
-          </td>
-        `;
-        tbody.appendChild(tr);
-      }
-    }
+  async function checkRisk() {
+    const res = await fetch("/orders/ai-risk-check", {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify(orderPayload()),
+    });
+    const data = await res.json();
+    showApi(res.status, data);
+    await loadLogs();
+  }
 
-    function sortOrders(field) {
-      if (orderSortField === field) {
-        orderSortAsc = !orderSortAsc;
-      } else {
-        orderSortField = field;
-        orderSortAsc = true;
-      }
-      renderOrdersTable();
-    }
+  async function createOrder() {
+    const res = await fetch("/orders", {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify(orderPayload()),
+    });
+    const data = await res.json();
+    showApi(res.status, data);
+    await loadOrders();
+    await loadLogs();
+  }
 
-    async function loadOrders() {
-      const res = await fetch("/orders", { headers: authHeaders() });
-      const data = await res.json();
-      showOutput(res.status, data);
-      if (!res.ok) {
-        document.getElementById("ordersBody").innerHTML =
-          `<tr><td colspan="9">${data.detail || "Error al cargar pedidos."}</td></tr>`;
-        return;
-      }
+  function renderOrders() {
+    const tbody = document.getElementById("ordersBody");
+    tbody.innerHTML = ordersCache.map((o) => `
+      <tr>
+        <td><strong>${o.order_code}</strong></td>
+        <td>${o.customer_email}</td>
+        <td>${o.amount}</td>
+        <td>${o.discount_pct}%</td>
+        <td><strong>${o.final_amount}</strong></td>
+        <td>${o.marketing_consent === 1 ? "Sí (1)" : `No (${o.marketing_consent})`}</td>
+        <td>${o.status}</td>
+        <td>${o.notes || ""}</td>
+        <td>
+          <div class="row-btns" style="margin:0;">
+            <button class="ok" style="margin:0;padding:4px 8px;" onclick="setStatus(${o.id}, 'approved')">Aprobar</button>
+            <button class="secondary" style="margin:0;padding:4px 8px;" onclick="setStatus(${o.id}, 'cancelled')">Cancelar</button>
+            <button class="danger" style="margin:0;padding:4px 8px;" onclick="delOrder(${o.id})">Borrar</button>
+          </div>
+        </td>
+      </tr>
+    `).join("");
+  }
+
+  async function loadOrders() {
+    const res = await fetch("/orders", { headers: headers() });
+    const data = await res.json();
+    if (res.ok) {
       ordersCache = data.orders || [];
-      renderOrdersTable();
+      renderOrders();
+    } else {
+      showApi(res.status, data);
     }
+  }
 
-    async function changeStatus(orderId, status) {
-      const res = await fetch(`/orders/${orderId}/status`, {
-        method: "PATCH",
-        headers: authHeaders(),
-        body: JSON.stringify({ status })
-      });
-      const data = await res.json();
-      showOutput(res.status, data);
-      if (res.ok) await loadOrders();
-      await loadAuditLogs();
+  function sortOrders(field) {
+    orderSortAsc = !orderSortAsc;
+    ordersCache.sort((a, b) => {
+      if (typeof a[field] === "number") return orderSortAsc ? a[field] - b[field] : b[field] - a[field];
+      return orderSortAsc
+        ? String(a[field]).localeCompare(String(b[field]))
+        : String(b[field]).localeCompare(String(a[field]));
+    });
+    renderOrders();
+  }
+
+  async function setStatus(orderId, status) {
+    const res = await fetch(`/orders/${orderId}/status`, {
+      method: "PATCH",
+      headers: headers(),
+      body: JSON.stringify({ status }),
+    });
+    const data = await res.json();
+    showApi(res.status, data);
+    await loadOrders();
+    await loadLogs();
+  }
+
+  async function delOrder(orderId) {
+    const res = await fetch(`/orders/${orderId}`, { method: "DELETE", headers: headers() });
+    const data = await res.json();
+    showApi(res.status, data);
+    await loadOrders();
+    await loadLogs();
+  }
+
+  function renderLogs() {
+    const tbody = document.getElementById("logsBody");
+    tbody.innerHTML = logsCache.map((l) => `
+      <tr>
+        <td><strong>${l.trace_code}</strong></td>
+        <td>${l.created_at}</td>
+        <td>${l.test_cycle || "-"}</td>
+        <td>${l.lab_mode}</td>
+        <td>${l.actor_email}</td>
+        <td>${l.role}</td>
+        <td>${l.action}</td>
+        <td>${l.status_code}</td>
+        <td>${l.detail}</td>
+      </tr>
+    `).join("");
+  }
+
+  async function loadLogs() {
+    const limit = document.getElementById("logLimit").value;
+    const actor = encodeURIComponent(document.getElementById("actorFilter").value || "");
+    const res = await fetch(`/audit-logs?limit=${limit}&actor_filter=${actor}`, { headers: headers() });
+    const data = await res.json();
+    if (res.ok) {
+      logsCache = data.logs || [];
+      renderLogs();
+    } else {
+      showApi(res.status, data);
     }
+  }
 
-    async function deleteOrder(orderId) {
-      const res = await fetch(`/orders/${orderId}`, {
-        method: "DELETE",
-        headers: authHeaders()
-      });
-      const data = await res.json();
-      showOutput(res.status, data);
-      if (res.ok) await loadOrders();
-      await loadAuditLogs();
+  function sortLogs(field) {
+    logSortAsc = !logSortAsc;
+    logsCache.sort((a, b) => {
+      if (typeof a[field] === "number") return logSortAsc ? a[field] - b[field] : b[field] - a[field];
+      return logSortAsc
+        ? String(a[field]).localeCompare(String(b[field]))
+        : String(b[field]).localeCompare(String(a[field]));
+    });
+    renderLogs();
+  }
+
+  async function inspectDb() {
+    const res = await fetch("/db/inspect?sample_limit=8", { headers: headers() });
+    const data = await res.json();
+    showApi(res.status, data);
+    document.getElementById("dbOutput").textContent = JSON.stringify(data, null, 2);
+    await loadLogs();
+  }
+
+  async function generateSynthetic() {
+    const profile = document.getElementById("synthProfile").value;
+    const count = parseInt(document.getElementById("synthCount").value, 10);
+    const res = await fetch("/test-data/generate", {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({ profile, count }),
+    });
+    const data = await res.json();
+    showApi(res.status, data);
+    if (res.ok) {
+      await loadOrders();
+      await loadLogs();
     }
+  }
 
-    function renderAuditTable() {
-      const tbody = document.getElementById("auditBody");
-      tbody.innerHTML = "";
-      if (!auditCache.length) {
-        tbody.innerHTML = `<tr><td colspan="8">Sin registros de trazabilidad.</td></tr>`;
-        return;
-      }
-      const sorted = [...auditCache].sort((a, b) => compareValues(a, b, auditSortField, auditSortAsc));
-      for (const item of sorted) {
-        const idTra = item.id_tra || `ID_TRA-${item.id}`;
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-          <td><strong>${idTra}</strong></td>
-          <td>${item.created_at}</td>
-          <td>${item.lab_mode || "buggy"}</td>
-          <td>${item.actor_email}</td>
-          <td>${item.role}</td>
-          <td>${item.action}</td>
-          <td>${item.status_code}</td>
-          <td>${item.detail}</td>
-        `;
-        tbody.appendChild(tr);
-      }
-    }
-
-    function sortAudit(field) {
-      if (auditSortField === field) {
-        auditSortAsc = !auditSortAsc;
-      } else {
-        auditSortField = field;
-        auditSortAsc = true;
-      }
-      renderAuditTable();
-    }
-
-    async function loadAuditLogs() {
-      if (!currentEmail) return;
-      const limitVal = document.getElementById("auditLimitSelect").value || "25";
-      const filterVal = document.getElementById("auditUserFilter").value.trim();
-      const params = new URLSearchParams({ limit: limitVal });
-      if (currentRole === "admin" && filterVal) {
-        params.set("user_filter", filterVal);
-      }
-      const res = await fetch(`/audit-logs?${params.toString()}`, {
-        headers: authHeaders()
-      });
-      const data = await res.json();
-      const tbody = document.getElementById("auditBody");
-      if (!res.ok) {
-        tbody.innerHTML = `<tr><td colspan="8">${data.detail || "Error al cargar trazabilidad."}</td></tr>`;
-        return;
-      }
-      auditCache = data.logs || [];
-      renderAuditTable();
-    }
-
-    updateEnvUI();
-    updateSessionUI();
-  </script>
+  syncUiState();
+</script>
 </body>
 </html>
