@@ -1,0 +1,12 @@
+# Framework de pruebas unitarias e integración en Python
+pytest==8.3.3
+# Medición de cobertura de líneas y ramas para pruebas estructurales (caja blanca)
+pytest-cov==5.0.0
+# API REST ligera para simular operaciones de pedidos, login, RBAC y evaluación de riesgo
+fastapi==0.115.0
+# Servidor ASGI para ejecutar la API dentro del Codespace
+uvicorn==0.30.6
+# Cliente HTTP requerido por TestClient de FastAPI en las pruebas automatizadas
+httpx==0.27.2
+# Validación de formato de correo electrónico (EmailStr) en los esquemas de entrada
+email-validator==2.2.0
