@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 from typing import Literal, Optional
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, EmailStr, Field
 
@@ -12,10 +12,26 @@ from database import init_db
 DB_PATH = os.getenv("LAB_DB_PATH", "lab_orders.db")
 conn = init_db(DB_PATH)
 
+# Tabla de trazabilidad / auditoría en SQLite
+conn.execute(
+    """
+    CREATE TABLE IF NOT EXISTS audit_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at TEXT DEFAULT (datetime('now')),
+        actor_email TEXT NOT NULL,
+        role TEXT NOT NULL,
+        action TEXT NOT NULL,
+        status_code INTEGER NOT NULL,
+        detail TEXT NOT NULL
+    )
+    """
+)
+conn.commit()
+
 app = FastAPI(
     title="Pearson QA Risk Lab API",
     description="API de laboratorio para pruebas de caja negra, caja blanca, RBAC, GDPR e IA.",
-    version="1.0.0",
+    version="1.1.0",
 )
 
 
@@ -34,6 +50,23 @@ class OrderCreateRequest(BaseModel):
 
 class OrderStatusUpdate(BaseModel):
     status: Literal["pending", "approved", "cancelled"]
+
+
+def log_audit(
+    actor_email: str,
+    role: str,
+    action: str,
+    status_code: int,
+    detail: str,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO audit_logs (actor_email, role, action, status_code, detail)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (actor_email.strip().lower(), role, action, status_code, detail[:500]),
+    )
+    conn.commit()
 
 
 def get_current_user(x_user_email: Optional[str]) -> dict:
@@ -68,13 +101,24 @@ def login(payload: LoginRequest) -> dict:
         (email_norm,),
     ).fetchone()
     if not row or row["password"] != payload.password:
+        role_guess = row["role"] if row else "unknown"
+        log_audit(email_norm, role_guess, "login", 401, "Intento de inicio de sesión fallido")
         raise HTTPException(status_code=401, detail="Credenciales inválidas")
+
+    log_audit(row["email"], row["role"], "login", 200, "Inicio de sesión exitoso")
     return {
         "authenticated": True,
         "email": row["email"],
         "role": row["role"],
         "header_to_use": {"X-User-Email": row["email"]},
     }
+
+
+@app.post("/logout")
+def logout(x_user_email: Optional[str] = Header(default=None)) -> dict:
+    user = get_current_user(x_user_email)
+    log_audit(user["email"], user["role"], "logout", 200, "Cierre de sesión")
+    return {"authenticated": False, "logged_out": True, "email": user["email"]}
 
 
 @app.post("/orders/ai-risk-check")
@@ -84,13 +128,29 @@ def ai_risk_check(
 ) -> dict:
     user = get_current_user(x_user_email)
     if user["role"] == "viewer":
+        log_audit(
+            user["email"],
+            user["role"],
+            "ai_risk_check",
+            403,
+            "Denegado: rol viewer no puede evaluar riesgo",
+        )
         raise HTTPException(status_code=403, detail="El rol viewer no puede evaluar o crear pedidos")
-    return evaluate_order_risk(
+
+    report = evaluate_order_risk(
         amount=payload.amount,
         discount_pct=payload.discount_pct,
         marketing_consent=payload.marketing_consent,
         notes=payload.notes,
     )
+    log_audit(
+        user["email"],
+        user["role"],
+        "ai_risk_check",
+        200,
+        f"Evaluación de riesgo para {payload.customer_email} (importe={payload.amount}, desc={payload.discount_pct}%)",
+    )
+    return report
 
 
 @app.post("/orders", status_code=201)
@@ -99,12 +159,18 @@ def create_order(
     x_user_email: Optional[str] = Header(default=None),
 ) -> dict:
     user = get_current_user(x_user_email)
-    # Regla RBAC: viewer es estrictamente de solo lectura
     if user["role"] == "viewer":
+        log_audit(user["email"], user["role"], "create_order", 403, "Denegado: rol viewer")
         raise HTTPException(status_code=403, detail="El rol viewer tiene acceso de solo lectura")
 
-    # Regla de negocio: un cliente solo puede crear pedidos asociados a su propio correo
     if user["role"] == "customer" and payload.customer_email.lower() != user["email"].lower():
+        log_audit(
+            user["email"],
+            user["role"],
+            "create_order",
+            403,
+            f"Denegado: intentó crear pedido para {payload.customer_email}",
+        )
         raise HTTPException(
             status_code=403,
             detail="Un cliente no puede crear pedidos a nombre de otro cliente",
@@ -139,6 +205,14 @@ def create_order(
     conn.commit()
     order_id = cursor.lastrowid
 
+    log_audit(
+        user["email"],
+        user["role"],
+        "create_order",
+        201,
+        f"Pedido #{order_id} creado para {payload.customer_email} por {final_amount}",
+    )
+
     row = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
     return {
         "order": dict(row),
@@ -149,7 +223,6 @@ def create_order(
 @app.get("/orders")
 def list_orders(x_user_email: Optional[str] = Header(default=None)) -> dict:
     user = get_current_user(x_user_email)
-    # admin y viewer pueden consultar todos los pedidos; customer solo ve los suyos
     if user["role"] in ("admin", "viewer"):
         rows = conn.execute("SELECT * FROM orders ORDER BY id ASC").fetchall()
     else:
@@ -157,6 +230,14 @@ def list_orders(x_user_email: Optional[str] = Header(default=None)) -> dict:
             "SELECT * FROM orders WHERE owner_email = ? OR customer_email = ? ORDER BY id ASC",
             (user["email"], user["email"]),
         ).fetchall()
+
+    log_audit(
+        user["email"],
+        user["role"],
+        "list_orders",
+        200,
+        f"Consultados {len(rows)} pedidos",
+    )
     return {
         "role": user["role"],
         "count": len(rows),
@@ -172,10 +253,24 @@ def update_order_status(
 ) -> dict:
     user = get_current_user(x_user_email)
     if user["role"] != "admin":
+        log_audit(
+            user["email"],
+            user["role"],
+            "update_order_status",
+            403,
+            f"Denegado: intentó cambiar pedido #{order_id} a '{payload.status}'",
+        )
         raise HTTPException(status_code=403, detail="Solo admin puede cambiar el estado de un pedido")
 
     existing = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
     if not existing:
+        log_audit(
+            user["email"],
+            user["role"],
+            "update_order_status",
+            404,
+            f"Pedido #{order_id} no encontrado",
+        )
         raise HTTPException(status_code=404, detail="Pedido no encontrado")
 
     conn.execute(
@@ -183,6 +278,13 @@ def update_order_status(
         (payload.status, order_id),
     )
     conn.commit()
+    log_audit(
+        user["email"],
+        user["role"],
+        "update_order_status",
+        200,
+        f"Pedido #{order_id} actualizado a '{payload.status}'",
+    )
     updated = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
     return {"order": dict(updated)}
 
@@ -194,12 +296,81 @@ def delete_order(
 ) -> dict:
     user = get_current_user(x_user_email)
     if user["role"] != "admin":
+        log_audit(
+            user["email"],
+            user["role"],
+            "delete_order",
+            403,
+            f"Denegado: intentó borrar pedido #{order_id}",
+        )
         raise HTTPException(status_code=403, detail="Solo admin puede eliminar pedidos")
 
     existing = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
     if not existing:
+        log_audit(
+            user["email"],
+            user["role"],
+            "delete_order",
+            404,
+            f"Pedido #{order_id} no encontrado al borrar",
+        )
         raise HTTPException(status_code=404, detail="Pedido no encontrado")
 
     conn.execute("DELETE FROM orders WHERE id = ?", (order_id,))
     conn.commit()
+    log_audit(
+        user["email"],
+        user["role"],
+        "delete_order",
+        200,
+        f"Pedido #{order_id} eliminado",
+    )
     return {"deleted": True, "order_id": order_id}
+
+
+@app.get("/audit-logs")
+def get_audit_logs(
+    x_user_email: Optional[str] = Header(default=None),
+    user_filter: Optional[str] = Query(default=None, description="Solo aplica si eres admin"),
+) -> dict:
+    user = get_current_user(x_user_email)
+    if user["role"] == "admin":
+        if user_filter and user_filter.strip():
+            rows = conn.execute(
+                """
+                SELECT id, created_at, actor_email, role, action, status_code, detail
+                FROM audit_logs
+                WHERE actor_email LIKE ?
+                ORDER BY id DESC
+                LIMIT 200
+                """,
+                (f"%{user_filter.strip().lower()}%",),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT id, created_at, actor_email, role, action, status_code, detail
+                FROM audit_logs
+                ORDER BY id DESC
+                LIMIT 200
+                """
+            ).fetchall()
+    else:
+        rows = conn.execute(
+            """
+            SELECT id, created_at, actor_email, role, action, status_code, detail
+            FROM audit_logs
+            WHERE actor_email = ?
+            ORDER BY id DESC
+            LIMIT 200
+            """,
+            (user["email"],),
+        ).fetchall()
+
+    return {
+        "viewer_email": user["email"],
+        "viewer_role": user["role"],
+        "scope": "all_users" if user["role"] == "admin" else "own_user_only",
+        "count": len(rows),
+        "logs": [dict(r) for r in rows],
+    }
