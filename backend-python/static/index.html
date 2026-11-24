@@ -1,7 +1,4 @@
-cat <<'EOF' > write_index.py
-from pathlib import Path
-
-html = r"""<!doctype html>
+<!doctype html>
 <html lang="es">
 <head>
   <meta charset="utf-8" />
@@ -501,7 +498,7 @@ html = r"""<!doctype html>
       document.getElementById("amount").value = "-120";
       document.getElementById("discount").value = "140";
       document.getElementById("consent").value = "9";
-      document.getElementById("notes").value = "Llamar al 600123456, DNI 12345678A <script>alert(1)</script>";
+      document.getElementById("notes").value = "Llamar al 600123456, DNI 12345678A <script>alert(1)<\/script>";
     }
 
     function orderPayload() {
@@ -680,9 +677,3 @@ html = r"""<!doctype html>
   </script>
 </body>
 </html>
-"""
-
-Path("static/index.html").write_text(html, encoding="utf-8")
-print("Escrito static/index.html completo correctamente.")
-EOF
-python3 write_index.py
