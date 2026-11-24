@@ -8,7 +8,16 @@
     body { font-family: system-ui, -apple-system, sans-serif; margin: 24px; background: #0f172a; color: #e2e8f0; }
     h1, h2, h3 { margin-top: 0; color: #f8fafc; }
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; margin-bottom: 20px; }
-    .card { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 16px; }
+    .card { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 16px; transition: opacity 0.2s ease, filter 0.2s ease; }
+    .card.locked {
+      opacity: 0.42;
+      filter: grayscale(85%);
+      background: #161e2e;
+      border-color: #263145;
+      pointer-events: none;
+      user-select: none;
+    }
+    .locked-hint { font-size: 0.82rem; color: #94a3b8; margin-bottom: 10px; font-style: italic; }
     label { display: block; font-size: 0.85rem; margin-top: 10px; color: #cbd5e1; }
     input, select, textarea, button { width: 100%; box-sizing: border-box; margin-top: 4px; padding: 8px 10px; border-radius: 6px; border: 1px solid #475569; font-size: 0.9rem; }
     input, select, textarea { background: #0f172a; color: #f8fafc; }
@@ -18,11 +27,14 @@
     button.secondary:hover { background: #334155; }
     button.danger { background: #dc2626; width: auto; padding: 5px 10px; margin-top: 0; }
     button.small { width: auto; padding: 5px 10px; margin-top: 0; }
+    .btn-row { display: flex; gap: 8px; }
     .badge { display: inline-block; padding: 3px 8px; border-radius: 999px; font-size: 0.8rem; font-weight: 700; background: #0ea5e9; color: #082f49; }
-    table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.88rem; }
+    .badge.muted { background: #334155; color: #94a3b8; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.86rem; }
     th, td { border-bottom: 1px solid #334155; padding: 8px; text-align: left; }
     pre { background: #020617; border: 1px solid #334155; border-radius: 8px; padding: 12px; overflow-x: auto; font-size: 0.82rem; color: #93c5fd; }
     .row-actions { display: flex; gap: 6px; align-items: center; }
+    .header-bar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
   </style>
 </head>
 <body>
@@ -30,19 +42,23 @@
 
   <div class="grid">
     <div class="card">
-      <h2>1. Iniciar sesión</h2>
+      <h2>1. Iniciar sesión / Cerrar sesión</h2>
       <label>Correo electrónico</label>
       <input id="loginEmail" type="email" value="cliente1@ejemplo.com" />
       <label>Contraseña</label>
       <input id="loginPassword" type="password" value="Cliente123!" />
-      <button onclick="doLogin()">Entrar (/login)</button>
-      <p style="margin-top:12px;">
-        Usuario activo: <strong id="activeUser">ninguno</strong> · Rol: <span id="activeRole" class="badge">-</span>
+      <div class="btn-row">
+        <button onclick="doLogin()">Entrar (/login)</button>
+        <button id="logoutBtn" class="secondary" onclick="doLogout()" disabled>Cerrar sesión</button>
+      </div>
+      <p style="margin-top:12px; margin-bottom:0;">
+        Usuario activo: <strong id="activeUser">ninguno</strong> · Rol: <span id="activeRole" class="badge muted">sin sesión</span>
       </p>
     </div>
 
-    <div class="card">
+    <div id="secRiskOrder" class="card locked">
       <h2>2. Crear pedido / Evaluar riesgo</h2>
+      <div class="locked-hint">Bloqueado hasta iniciar sesión.</div>
       <label>Correo del cliente (customer_email)</label>
       <input id="orderEmail" type="email" value="cliente1@ejemplo.com" />
       <label>Importe bruto (amount)</label>
@@ -56,18 +72,19 @@
       </select>
       <label>Notas (notes)</label>
       <textarea id="orderNotes" rows="2" placeholder="Ej. Entrega urgente o datos de contacto..."></textarea>
-      <div style="display:flex; gap:8px;">
+      <div class="btn-row">
         <button class="secondary" onclick="checkRisk()">Evaluar Riesgo/GDPR</button>
         <button onclick="createOrder()">Crear Pedido (POST /orders)</button>
       </div>
     </div>
   </div>
 
-  <div class="card" style="margin-bottom:20px;">
-    <div style="display:flex; justify-content:space-between; align-items:center;">
+  <div id="secOrders" class="card locked" style="margin-bottom:20px;">
+    <div class="header-bar">
       <h2 style="margin:0;">3. Pedidos (GET /orders)</h2>
       <button class="small" onclick="loadOrders()">Actualizar lista</button>
     </div>
+    <div class="locked-hint" style="margin-top:6px;">Bloqueado hasta iniciar sesión.</div>
     <table>
       <thead>
         <tr>
@@ -88,14 +105,81 @@
     </table>
   </div>
 
+  <div id="secAudit" class="card locked" style="margin-bottom:20px;">
+    <div class="header-bar">
+      <div>
+        <h2 style="margin:0;">4. Trazabilidad (GET /audit-logs)</h2>
+        <div id="auditScopeText" style="font-size:0.82rem; color:#94a3b8; margin-top:4px;">
+          Inicia sesión para ver tu trazabilidad.
+        </div>
+      </div>
+      <div class="row-actions">
+        <input id="auditUserFilter" type="text" placeholder="Filtrar usuario (solo admin)..." style="width:210px; margin-top:0; display:none;" />
+        <button class="small" onclick="loadAuditLogs()">Actualizar trazabilidad</button>
+      </div>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Fecha/Hora (UTC)</th>
+          <th>Usuario</th>
+          <th>Rol</th>
+          <th>Acción</th>
+          <th>HTTP</th>
+          <th>Detalle</th>
+        </tr>
+      </thead>
+      <tbody id="auditBody">
+        <tr><td colspan="7">Sin trazabilidad cargada.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
   <div class="card">
     <h3>Última respuesta de la API (HTTP + JSON)</h3>
-    <pre id="outputBox">Listo para probar...</pre>
+    <pre id="outputBox">Inicia sesión en el bloque 1 para desbloquear los bloques 2, 3 y 4.</pre>
   </div>
 
   <script>
     let currentEmail = "";
     let currentRole = "";
+
+    function updateSessionUI() {
+      const loggedIn = Boolean(currentEmail);
+      const userEl = document.getElementById("activeUser");
+      const roleEl = document.getElementById("activeRole");
+      const logoutBtn = document.getElementById("logoutBtn");
+      const filterInput = document.getElementById("auditUserFilter");
+      const scopeText = document.getElementById("auditScopeText");
+
+      userEl.textContent = loggedIn ? currentEmail : "ninguno";
+      roleEl.textContent = loggedIn ? currentRole : "sin sesión";
+      roleEl.className = loggedIn ? "badge" : "badge muted";
+      logoutBtn.disabled = !loggedIn;
+
+      for (const id of ["secRiskOrder", "secOrders", "secAudit"]) {
+        const el = document.getElementById(id);
+        el.classList.toggle("locked", !loggedIn);
+      }
+
+      if (!loggedIn) {
+        filterInput.style.display = "none";
+        filterInput.value = "";
+        scopeText.textContent = "Inicia sesión para ver tu trazabilidad.";
+        document.getElementById("ordersBody").innerHTML =
+          `<tr><td colspan="9">Inicia sesión para consultar pedidos.</td></tr>`;
+        document.getElementById("auditBody").innerHTML =
+          `<tr><td colspan="7">Sin trazabilidad cargada.</td></tr>`;
+      } else if (currentRole === "admin") {
+        filterInput.style.display = "inline-block";
+        scopeText.textContent = "Modo administrador: visualizando la trazabilidad de TODOS los usuarios.";
+      } else {
+        filterInput.style.display = "none";
+        filterInput.value = "";
+        scopeText.textContent = `Modo ${currentRole}: visualizando únicamente la trazabilidad de ${currentEmail}.`;
+      }
+    }
 
     function showOutput(status, data) {
       document.getElementById("outputBox").textContent =
@@ -121,11 +205,24 @@
       if (res.ok && data.authenticated) {
         currentEmail = data.email;
         currentRole = data.role;
-        document.getElementById("activeUser").textContent = currentEmail;
-        document.getElementById("activeRole").textContent = currentRole;
         document.getElementById("orderEmail").value = currentEmail;
+        updateSessionUI();
         await loadOrders();
+        await loadAuditLogs();
       }
+    }
+
+    async function doLogout() {
+      if (!currentEmail) return;
+      const res = await fetch("/logout", {
+        method: "POST",
+        headers: authHeaders()
+      });
+      const data = await res.json();
+      showOutput(res.status, data);
+      currentEmail = "";
+      currentRole = "";
+      updateSessionUI();
     }
 
     function getOrderPayload() {
@@ -146,6 +243,7 @@
       });
       const data = await res.json();
       showOutput(res.status, data);
+      await loadAuditLogs();
     }
 
     async function createOrder() {
@@ -156,7 +254,10 @@
       });
       const data = await res.json();
       showOutput(res.status, data);
-      if (res.ok) await loadOrders();
+      if (res.ok) {
+        await loadOrders();
+      }
+      await loadAuditLogs();
     }
 
     async function loadOrders() {
@@ -202,7 +303,10 @@
       });
       const data = await res.json();
       showOutput(res.status, data);
-      if (res.ok) await loadOrders();
+      if (res.ok) {
+        await loadOrders();
+      }
+      await loadAuditLogs();
     }
 
     async function deleteOrder(orderId) {
@@ -212,8 +316,44 @@
       });
       const data = await res.json();
       showOutput(res.status, data);
-      if (res.ok) await loadOrders();
+      if (res.ok) {
+        await loadOrders();
+      }
+      await loadAuditLogs();
     }
+
+    async function loadAuditLogs() {
+      if (!currentEmail) return;
+      const filterVal = document.getElementById("auditUserFilter").value.trim();
+      const query = currentRole === "admin" && filterVal
+        ? `?user_filter=${encodeURIComponent(filterVal)}`
+        : "";
+      const res = await fetch(`/audit-logs${query}`, {
+        headers: authHeaders()
+      });
+      const data = await res.json();
+      const tbody = document.getElementById("auditBody");
+      tbody.innerHTML = "";
+      if (!res.ok || !data.logs || data.logs.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7">${data.detail || "Sin registros de trazabilidad."}</td></tr>`;
+        return;
+      }
+      for (const item of data.logs) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${item.id}</td>
+          <td>${item.created_at}</td>
+          <td>${item.actor_email}</td>
+          <td>${item.role}</td>
+          <td>${item.action}</td>
+          <td>${item.status_code}</td>
+          <td>${item.detail}</td>
+        `;
+        tbody.appendChild(tr);
+      }
+    }
+
+    updateSessionUI();
   </script>
 </body>
 </html>
