@@ -1,105 +1,132 @@
-import os
-import re
-from typing import Any, Dict, List
+import json
+from datetime import datetime, timezone
+from pathlib import Path
 
-# Patrones de ejemplo para detectar posibles datos personales (PII) en textos libres
-DNI_NIE_PATTERN = re.compile(r"\b[XYZ]?\d{7,8}[A-Z]\b", re.IGNORECASE)
-PHONE_PATTERN = re.compile(r"\b(?:\+34[\s-]?)?[6789]\d{2}[\s-]?\d{3}[\s-]?\d{3}\b")
-EMAIL_PATTERN = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
+from fastapi.testclient import TestClient
 
+from ai_risk_advisor import detect_pii_findings, evaluate_order_risk
+from app_service import app
 
-def detect_pii_findings(text: str) -> List[str]:
-    # Busca coincidencias de posibles identificadores o datos de contacto en el texto
-    findings: List[str] = []
-    if not text:
-        return findings
-    if DNI_NIE_PATTERN.search(text):
-        findings.append("dni_nie_like")
-    if PHONE_PATTERN.search(text):
-        findings.append("phone_like")
-    if EMAIL_PATTERN.search(text):
-        findings.append("email_like")
-    return findings
+client = TestClient(app)
+RESULTS_FILE = Path(__file__).resolve().parent / "qa_test_results.json"
 
 
-def local_rule_engine(
-    amount: float,
-    discount_pct: float,
-    marketing_consent: int,
-    notes: str,
-) -> Dict[str, Any]:
-    # Motor determinista local: siempre funciona sin depender de red ni claves externas
-    pii_findings = detect_pii_findings(notes)
-    gdpr_alert = bool(pii_findings) or (marketing_consent == 0 and len(notes.strip()) > 120)
+def _save_run_record(record: dict) -> None:
+    history: list[dict] = []
+    if RESULTS_FILE.exists():
+        try:
+            loaded = json.loads(RESULTS_FILE.read_text(encoding="utf-8"))
+            if isinstance(loaded, list):
+                history = loaded
+        except json.JSONDecodeError:
+            history = []
 
-    reasons: List[str] = []
-    if amount >= 5000:
-        reasons.append("Importe elevado (>= 5000)")
-    if discount_pct > 30:
-        reasons.append("Descuento superior al 30%")
-    if pii_findings:
-        reasons.append(f"Posibles datos personales en notas: {', '.join(pii_findings)}")
-    if marketing_consent == 0 and pii_findings:
-        reasons.append("Datos personales registrados sin consentimiento explícito")
-
-    # Clasificación sencilla de riesgo según reglas de negocio y privacidad
-    if amount >= 10000 or (pii_findings and marketing_consent == 0):
-        risk_level = "CRITICAL"
-    elif amount >= 5000 or discount_pct > 30 or pii_findings:
-        risk_level = "HIGH"
-    elif discount_pct > 15 or gdpr_alert:
-        risk_level = "MEDIUM"
-    else:
-        risk_level = "LOW"
-
-    if not reasons:
-        reasons.append("Operación dentro de parámetros normales sin alertas de riesgo")
-
-    return {
-        "engine": "local_rule_engine",
-        "risk_level": risk_level,
-        "gdpr_alert": gdpr_alert,
-        "pii_findings": pii_findings,
-        "reasons": reasons,
-    }
+    record["timestamp_utc"] = datetime.now(timezone.utc).isoformat()
+    history.append(record)
+    RESULTS_FILE.write_text(
+        json.dumps(history, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
 
 
-def evaluate_order_risk(
-    amount: float,
-    discount_pct: float,
-    marketing_consent: int,
-    notes: str,
-) -> Dict[str, Any]:
-    # Si no hay GEMINI_API_KEY configurada, usa directamente el motor local determinista
-    api_key = os.getenv("GEMINI_API_KEY", "").strip()
-    base = local_rule_engine(amount, discount_pct, marketing_consent, notes)
-
-    if not api_key:
-        return base
-
-    # Si existe clave, intenta enriquecer el análisis con Gemini; ante cualquier fallo, cae al motor local
-    try:
-        from google import genai  # Importación opcional si se usa Gemini en el entorno
-
-        client = genai.Client(api_key=api_key)
-        prompt = (
-            "Evalúa brevemente el riesgo operativo y GDPR de este pedido en JSON con claves "
-            "risk_level (LOW|MEDIUM|HIGH|CRITICAL), gdpr_alert (bool) y summary (str): "
-            f"amount={amount}, discount_pct={discount_pct}, marketing_consent={marketing_consent}, notes={notes!r}"
+def pytest_runtest_makereport(item, call):
+    if call.when == "call":
+        _save_run_record(
+            {
+                "test_name": item.name,
+                "status": "PASSED" if call.excinfo is None else "FAILED",
+                "duration_sec": round(call.duration, 4),
+                "error": str(call.excinfo.value) if call.excinfo is not None else None,
+            }
         )
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt,
-        )
-        text_out = (response.text or "").strip()
-        return {
-            **base,
-            "engine": "gemini-2.5-flash+guardrail",
-            "ai_raw_note": text_out[:300],
+
+
+def test_detect_pii_and_gdpr_alert():
+    # Texto sin las palabras "DNI", "teléfono" ni "email": valida detección por estructura
+    raw_text = "Contacto directo: 12345678A, +34 612 345 678, ana@ejemplo.com"
+    findings = detect_pii_findings(raw_text)
+    assert "dni_nie_like" in findings
+    assert "phone_like" in findings
+    assert "email_like" in findings
+
+    res = evaluate_order_risk(
+        amount=1200.0,
+        discount_pct=10.0,
+        marketing_consent=0,
+        notes="Llamar al 612345678",
+    )
+    assert res["gdpr_alert"] is True
+    assert res["risk_level"] in ("HIGH", "CRITICAL")
+
+    _save_run_record(
+        {
+            "test_name": "test_detect_pii_and_gdpr_alert",
+            "event": "pii_and_risk_snapshot",
+            "raw_text": raw_text,
+            "findings": findings,
+            "risk_level": res["risk_level"],
+            "gdpr_alert": res["gdpr_alert"],
         }
-    except Exception as exc:
-        return {
-            **base,
-            "engine": "local_rule_engine_fallback",
-            "fallback_reason": type(exc).__name__,
-        }
+    )
+
+
+def test_low_risk_order_calculation():
+    res = client.post(
+        "/orders",
+        headers={"X-User-Email": "cliente1@ejemplo.com"},
+        json={
+            "customer_email": "cliente1@ejemplo.com",
+            "amount": 200.0,
+            "discount_pct": 10.0,
+            "marketing_consent": 1,
+            "notes": "Pedido estándar sin datos personales",
+        },
+    )
+    assert res.status_code == 201
+    body = res.json()
+    assert body["order"]["final_amount"] == 180.0
+    assert body["risk_assessment"]["risk_level"] == "LOW"
+    assert body["risk_assessment"]["gdpr_alert"] is False
+
+
+def test_rbac_viewer_cannot_create_and_customer_isolated():
+    forbidden = client.post(
+        "/orders",
+        headers={"X-User-Email": "viewer@ejemplo.com"},
+        json={
+            "customer_email": "cliente1@ejemplo.com",
+            "amount": 100.0,
+            "discount_pct": 0.0,
+            "marketing_consent": 0,
+            "notes": "Intento de escritura con viewer",
+        },
+    )
+    assert forbidden.status_code == 403
+
+    cross_customer = client.post(
+        "/orders",
+        headers={"X-User-Email": "cliente1@ejemplo.com"},
+        json={
+            "customer_email": "cliente2@ejemplo.com",
+            "amount": 100.0,
+            "discount_pct": 0.0,
+            "marketing_consent": 0,
+            "notes": "Intento de suplantación de cliente2",
+        },
+    )
+    assert cross_customer.status_code == 403
+
+
+def test_invalid_amount_rejected_by_validation():
+    bad = client.post(
+        "/orders",
+        headers={"X-User-Email": "cliente1@ejemplo.com"},
+        json={
+            "customer_email": "cliente1@ejemplo.com",
+            "amount": -50.0,
+            "discount_pct": 0.0,
+            "marketing_consent": 0,
+            "notes": "Importe negativo",
+        },
+    )
+    assert bad.status_code == 422
