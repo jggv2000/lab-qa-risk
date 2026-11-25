@@ -526,6 +526,10 @@ def create_order(
         )
         raise HTTPException(status_code=exc.status_code, detail=f"{exc.detail} ({trace_code})")
 
+    if (cycle != "all_errors" or mode == "clean") and user["role"] == "viewer":
+        trace_code = log_audit(user["email"], user["role"], "CREATE_ORDER", 403, "Rol viewer sin permiso de escritura", mode, cycle)
+        raise HTTPException(status_code=403, detail=f"No autorizado para rol viewer ({trace_code})")
+
     if cycle != "all_errors" and user["role"] == "customer" and cust_email != user["email"].lower():
         trace_code = log_audit(user["email"], user["role"], "CREATE_ORDER", 403, "Pedido para tercero bloqueado", mode, cycle)
         raise HTTPException(status_code=403, detail=f"No autorizado ({trace_code})")

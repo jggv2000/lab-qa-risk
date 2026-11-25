@@ -12,6 +12,24 @@ from app_service import app
 
 client = TestClient(app)
 
+
+def _clean_token() -> str:
+    res = client.post(
+        "/mode/clean-login",
+        json={"username": "instructor@lab.local", "password": "CleanMode2026!"},
+    )
+    assert res.status_code == 200
+    return res.json()["clean_token"]
+
+
+def _session_token(email: str, password: str) -> str:
+    res = client.post(
+        "/login",
+        json={"email": email, "password": password},
+    )
+    assert res.status_code == 200
+    return res.json()["session_token"]
+
 # Guarda en la raíz del repositorio para no mezclar artefactos dentro de tests/
 RESULTS_FILE = Path(__file__).resolve().parents[1] / "qa_test_results.json"
 LAB_VERSION = os.getenv("LAB_VERSION", "v1.0-all_errors")
@@ -81,7 +99,9 @@ def test_low_risk_order_calculation():
         "/orders",
         headers={
             "X-User-Email": "cliente1@ejemplo.com",
+            "X-Session-Token": _session_token("cliente1@ejemplo.com", "Cliente123!"),
             "X-Lab-Mode": "clean",
+            "X-Clean-Token": _clean_token(),
             "X-Test-Cycle": "all_clean",
         },
         json={
@@ -110,8 +130,10 @@ def test_low_risk_order_calculation():
 def test_rbac_viewer_cannot_create_and_customer_isolated():
     clean_headers = {
         "X-User-Email": "viewer@ejemplo.com",
+        "X-Session-Token": _session_token("viewer@ejemplo.com", "Viewer123!"),
         "X-Test-Cycle": "all_clean",
         "X-Lab-Mode": "clean",
+        "X-Clean-Token": _clean_token(),
     }
     forbidden = client.post(
         "/orders",
@@ -130,8 +152,10 @@ def test_rbac_viewer_cannot_create_and_customer_isolated():
         "/orders",
         headers={
             "X-User-Email": "cliente1@ejemplo.com",
+            "X-Session-Token": _session_token("cliente1@ejemplo.com", "Cliente123!"),
             "X-Test-Cycle": "all_clean",
             "X-Lab-Mode": "clean",
+            "X-Clean-Token": _clean_token(),
         },
         json={
             "customer_email": "cliente2@ejemplo.com",
