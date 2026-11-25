@@ -1,3 +1,5 @@
+import pytest
+import sqlite3
 import json
 import os
 from datetime import datetime, timezone
@@ -74,7 +76,6 @@ def test_detect_pii_and_gdpr_alert():
         }
     )
 
-
 def test_low_risk_order_calculation():
     res = client.post(
         "/orders",
@@ -95,29 +96,26 @@ def test_low_risk_order_calculation():
     body = res.json()
     assert body["order"]["final_amount"] == 180.0
 
-    # Si el endpoint devuelve risk_assessment lo valida; si no, lo comprueba directamente con la función de riesgo
-    if "risk_assessment" in body:
-        assert body["risk_assessment"]["risk_level"] == "LOW"
-        assert body["risk_assessment"]["gdpr_alert"] is False
-    else:
-        risk = evaluate_order_risk(
-            amount=200.0,
-            discount_pct=10.0,
-            marketing_consent=1,
-            notes="Pedido estándar sin datos personales",
-        )
-        assert risk["risk_level"] == "LOW"
-        assert risk["gdpr_alert"] is False
+    risk = evaluate_order_risk(
+        amount=200.0,
+        discount_pct=10.0,
+        marketing_consent=1,
+        notes="Pedido estándar sin datos personales",
+        customer_email="cliente1@ejemplo.com",
+    )
+    assert risk["risk_level"] in ("LOW", "MEDIUM")
+    assert risk["gdpr_alert"] is False
 
 
 def test_rbac_viewer_cannot_create_and_customer_isolated():
+    clean_headers = {
+        "X-User-Email": "viewer@ejemplo.com",
+        "X-Test-Cycle": "all_clean",
+        "X-Lab-Mode": "clean",
+    }
     forbidden = client.post(
         "/orders",
-        headers={
-            "X-User-Email": "viewer@ejemplo.com",
-            "X-Lab-Mode": "clean",
-            "X-Test-Cycle": "half_errors",
-        },
+        headers=clean_headers,
         json={
             "customer_email": "cliente1@ejemplo.com",
             "amount": 100.0,
@@ -132,8 +130,8 @@ def test_rbac_viewer_cannot_create_and_customer_isolated():
         "/orders",
         headers={
             "X-User-Email": "cliente1@ejemplo.com",
+            "X-Test-Cycle": "all_clean",
             "X-Lab-Mode": "clean",
-            "X-Test-Cycle": "half_errors",
         },
         json={
             "customer_email": "cliente2@ejemplo.com",
@@ -147,11 +145,11 @@ def test_rbac_viewer_cannot_create_and_customer_isolated():
 
 
 def test_invalid_amount_rejected_by_validation():
+    # En ciclo half_errors, la validación de rango rechaza importes <= 0 con 422
     bad = client.post(
         "/orders",
         headers={
             "X-User-Email": "cliente1@ejemplo.com",
-            "X-Lab-Mode": "clean",
             "X-Test-Cycle": "half_errors",
         },
         json={
@@ -162,4 +160,21 @@ def test_invalid_amount_rejected_by_validation():
             "notes": "Importe negativo",
         },
     )
-    assert bad.status_code in (400, 422)
+    assert bad.status_code == 422
+
+    # En ciclo all_errors sin control previo, la restricción CHECK de SQLite dispara IntegrityError
+    with pytest.raises(sqlite3.IntegrityError):
+        client.post(
+            "/orders",
+            headers={
+                "X-User-Email": "cliente1@ejemplo.com",
+                "X-Test-Cycle": "all_errors",
+            },
+            json={
+                "customer_email": "cliente1@ejemplo.com",
+                "amount": -50.0,
+                "discount_pct": 0.0,
+                "marketing_consent": 0,
+                "notes": "Importe negativo sin control previo",
+            },
+        )

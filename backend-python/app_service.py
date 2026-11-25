@@ -8,6 +8,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, EmailStr, Field
 
 from database import init_db
+import sqlite3
 
 DB_PATH = os.getenv("LAB_DB_PATH", "lab_orders.db")
 CLEAN_MODE_USER = os.getenv("CLEAN_MODE_USER", "instructor@lab.local").strip().lower()
@@ -50,59 +51,64 @@ def seed_initial_orders() -> None:
     """Siembra datos BUENOS y MALOS en la base de datos para inspección y pruebas."""
     existing_count = conn.execute("SELECT COUNT(*) AS cnt FROM orders").fetchone()["cnt"]
     if existing_count == 0:
-        conn.executemany(
-            """
-            INSERT INTO orders (
-                owner_email, customer_email, amount, discount_pct,
-                final_amount, status, marketing_consent, notes
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            [
-                # --- DATOS BUENOS ---
-                (
-                    "cliente1@ejemplo.com",
-                    "cliente1@ejemplo.com",
-                    200.0,
-                    10.0,
-                    180.0,
-                    "approved",
-                    1,
-                    "[BUENO] Pedido estándar válido con consentimiento",
-                ),
-                (
-                    "cliente2@ejemplo.com",
-                    "cliente2@ejemplo.com",
-                    350.0,
-                    15.0,
-                    297.5,
-                    "pending",
-                    1,
-                    "[BUENO] Pedido en umbral de descuento 15%",
-                ),
-                # --- DATOS MALOS / ANÓMALOS ---
-                (
-                    "cliente1@ejemplo.com",
-                    "correo-invalido-sin-arroba",
-                    -120.0,
-                    140.0,
-                    48.0,
-                    "pending",
-                    9,
-                    "[MALO] Importe negativo, descuento >100%, email roto y consent=9",
-                ),
-                (
-                    "cliente2@ejemplo.com",
-                    "cliente2@ejemplo.com",
-                    500.0,
-                    30.0,
-                    425.0,
-                    "pending",
-                    0,
-                    "[MALO-RGPD] Llamar al 600123456 DNI 12345678A <script>alert(1)</script>",
-                ),
-            ],
-        )
+        sample_orders = [
+            # --- DATOS BUENOS ---
+            (
+                "cliente1@ejemplo.com",
+                "cliente1@ejemplo.com",
+                200.0,
+                10.0,
+                180.0,
+                "approved",
+                1,
+                "[BUENO] Pedido estándar válido con consentimiento",
+            ),
+            (
+                "cliente2@ejemplo.com",
+                "cliente2@ejemplo.com",
+                350.0,
+                15.0,
+                297.5,
+                "pending",
+                1,
+                "[BUENO] Pedido en umbral de descuento 15%",
+            ),
+            # --- DATOS MALOS / ANÓMALOS ---
+            (
+                "cliente1@ejemplo.com",
+                "correo-invalido-sin-arroba",
+                -120.0,
+                140.0,
+                48.0,
+                "pending",
+                9,
+                "[MALO] Importe negativo, descuento >100%, email roto y consent=9",
+            ),
+            (
+                "cliente2@ejemplo.com",
+                "cliente2@ejemplo.com",
+                500.0,
+                30.0,
+                425.0,
+                "pending",
+                0,
+                "[MALO-RGPD] Llamar al 600123456 DNI 12345678A <script>alert(1)</script>",
+            ),
+        ]
+        for row in sample_orders:
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO orders (
+                        owner_email, customer_email, amount, discount_pct,
+                        final_amount, status, marketing_consent, notes
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    row,
+                )
+            except sqlite3.IntegrityError:
+                continue
         conn.commit()
 
 
@@ -220,7 +226,7 @@ def get_current_user(
         raise HTTPException(status_code=401, detail="Falta cabecera X-User-Email")
     email = x_user_email.strip().lower()
     user = conn.execute(
-        "SELECT id, email, role, password_hash FROM users WHERE lower(email) = ?",
+        "SELECT id, email, role, password FROM users WHERE lower(email) = ?",
         (email,),
     ).fetchone()
     if not user:
@@ -398,10 +404,11 @@ def login(
     cycle = resolve_cycle(x_test_cycle)
     email = payload.email.strip().lower()
     user = conn.execute(
-        "SELECT id, email, role, password_hash FROM users WHERE lower(email) = ?",
+        "SELECT id, email, role, password FROM users WHERE lower(email) = ?",
         (email,),
     ).fetchone()
-    if not user or user["password_hash"] != payload.password:
+    stored_password = user["password"] if user and "password" in user.keys() else (user["password_hash"] if user and "password_hash" in user.keys() else None)
+    if not user or stored_password != payload.password:
         trace_code = log_audit(email, "unknown", "LOGIN", 401, "Login fallido", mode, cycle)
         raise HTTPException(status_code=401, detail=f"Credenciales inválidas ({trace_code})")
 
