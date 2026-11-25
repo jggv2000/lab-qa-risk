@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from version_switches import DEFAULT_VERSION, is_flag_enabled
+
 # Detección estructural de datos personales (PII) sin depender de palabras clave
 DNI_NIE_STRUCT_RE = re.compile(
     r"(?<![A-Za-z0-9])(?:[XYZ]\d{7}|\d{8})[A-HJ-NP-TV-Z](?![A-Za-z0-9])",
@@ -45,14 +47,19 @@ def evaluate_order_risk(
     marketing_consent: int | bool = 0,
     notes: str | None = None,
     customer_email: str | None = None,
+    version: str | None = None,
 ) -> dict[str, Any]:
-    """Evalúa el nivel de riesgo y alerta RGPD/PII de un pedido."""
+    """Evalúa el nivel de riesgo y alerta RGPD/PII de un pedido según la versión activa."""
+    active_ver = version or DEFAULT_VERSION
+    pii_leak_flag = is_flag_enabled(active_ver, "pii_exposure_or_no_rgpd")
+
     pii_sources = " ".join(part for part in (notes, customer_email) if part)
     pii_findings = detect_pii_findings(pii_sources)
     has_consent = bool(marketing_consent)
     has_pii = len(pii_findings) > 0
 
-    gdpr_alert = has_pii and not has_consent
+    # En versiones con fallo de privacidad/RGPD activo, no se dispara la alerta RGPD aunque haya PII sin consentimiento
+    gdpr_alert = False if pii_leak_flag else (has_pii and not has_consent)
 
     risk_score = 0
     reasons: list[str] = []
@@ -74,6 +81,8 @@ def evaluate_order_risk(
     if gdpr_alert:
         risk_score += 3
         reasons.append("pii_without_marketing_consent")
+    elif has_pii and pii_leak_flag:
+        reasons.append("pii_unprotected_due_to_version_defect")
     elif has_pii:
         risk_score += 1
         reasons.append("pii_detected_with_consent")
@@ -88,6 +97,7 @@ def evaluate_order_risk(
         risk_level = "LOW"
 
     return {
+        "version": active_ver,
         "risk_level": risk_level,
         "risk_score": risk_score,
         "gdpr_alert": gdpr_alert,
