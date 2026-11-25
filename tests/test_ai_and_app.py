@@ -1,10 +1,10 @@
-import pytest
-import sqlite3
 import json
 import os
+import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from ai_risk_advisor import detect_pii_findings, evaluate_order_risk
@@ -30,9 +30,10 @@ def _session_token(email: str, password: str) -> str:
     assert res.status_code == 200
     return res.json()["session_token"]
 
+
 # Guarda en la raíz del repositorio para no mezclar artefactos dentro de tests/
 RESULTS_FILE = Path(__file__).resolve().parents[1] / "qa_test_results.json"
-LAB_VERSION = os.getenv("LAB_VERSION", "v1.0-all_errors")
+LAB_VERSION = os.getenv("LAB_VERSION", "v3.0")
 
 
 def _save_run_record(record: dict) -> None:
@@ -51,6 +52,54 @@ def _save_run_record(record: dict) -> None:
     RESULTS_FILE.write_text(
         json.dumps(history, indent=2, ensure_ascii=False),
         encoding="utf-8",
+    )
+
+
+def _record_risk_mapping(
+    *,
+    test_name: str,
+    inputs: dict,
+    actual_risk: dict,
+    expected_gdpr_alert: bool,
+    allowed_risk_levels: list[str],
+    required_pii: list[str] | None = None,
+    required_reasons: list[str] | None = None,
+) -> None:
+    required_pii = required_pii or []
+    required_reasons = required_reasons or []
+
+    actual_pii = actual_risk.get("pii_findings", [])
+    actual_reasons = actual_risk.get("reasons", [])
+    actual_level = actual_risk.get("risk_level")
+    actual_gdpr = actual_risk.get("gdpr_alert")
+
+    mapping_ok = (
+        actual_gdpr is expected_gdpr_alert
+        and actual_level in allowed_risk_levels
+        and all(item in actual_pii for item in required_pii)
+        and all(item in actual_reasons for item in required_reasons)
+    )
+
+    _save_run_record(
+        {
+            "test_name": test_name,
+            "event": "risk_mapping_check",
+            "inputs": inputs,
+            "expected": {
+                "gdpr_alert": expected_gdpr_alert,
+                "allowed_risk_levels": allowed_risk_levels,
+                "required_pii": required_pii,
+                "required_reasons": required_reasons,
+            },
+            "actual_risk_result": actual_risk,
+            "risk_mapping_passed": mapping_ok,
+        }
+    )
+    assert mapping_ok, (
+        f"Mapeo de riesgo fallido en {test_name}: "
+        f"actual={actual_risk}, expected_gdpr={expected_gdpr_alert}, "
+        f"allowed_levels={allowed_risk_levels}, required_pii={required_pii}, "
+        f"required_reasons={required_reasons}"
     )
 
 
@@ -74,12 +123,13 @@ def test_detect_pii_and_gdpr_alert():
     assert "phone_like" in findings
     assert "email_like" in findings
 
-    res = evaluate_order_risk(
-        amount=1200.0,
-        discount_pct=10.0,
-        marketing_consent=0,
-        notes="Llamar al 612345678",
-    )
+    order_inputs = {
+        "amount": 1200.0,
+        "discount_pct": 10.0,
+        "marketing_consent": 0,
+        "notes": "Llamar al 612345678",
+    }
+    res = evaluate_order_risk(**order_inputs)
     assert res["gdpr_alert"] is True
     assert res["risk_level"] in ("HIGH", "CRITICAL")
 
@@ -93,8 +143,25 @@ def test_detect_pii_and_gdpr_alert():
             "gdpr_alert": res["gdpr_alert"],
         }
     )
+    _record_risk_mapping(
+        test_name="test_detect_pii_and_gdpr_alert",
+        inputs=order_inputs,
+        actual_risk=res,
+        expected_gdpr_alert=True,
+        allowed_risk_levels=["HIGH", "CRITICAL"],
+        required_pii=["phone_like"],
+        required_reasons=["pii_without_marketing_consent"],
+    )
+
 
 def test_low_risk_order_calculation():
+    order_payload = {
+        "customer_email": "cliente1@ejemplo.com",
+        "amount": 200.0,
+        "discount_pct": 10.0,
+        "marketing_consent": 1,
+        "notes": "Pedido estándar sin datos personales",
+    }
     res = client.post(
         "/orders",
         headers={
@@ -104,27 +171,32 @@ def test_low_risk_order_calculation():
             "X-Clean-Token": _clean_token(),
             "X-Test-Cycle": "all_clean",
         },
-        json={
-            "customer_email": "cliente1@ejemplo.com",
-            "amount": 200.0,
-            "discount_pct": 10.0,
-            "marketing_consent": 1,
-            "notes": "Pedido estándar sin datos personales",
-        },
+        json=order_payload,
     )
     assert res.status_code == 201
     body = res.json()
     assert body["order"]["final_amount"] == 180.0
 
-    risk = evaluate_order_risk(
-        amount=200.0,
-        discount_pct=10.0,
-        marketing_consent=1,
-        notes="Pedido estándar sin datos personales",
-        customer_email="cliente1@ejemplo.com",
-    )
+    risk_inputs = {
+        "amount": 200.0,
+        "discount_pct": 10.0,
+        "marketing_consent": 1,
+        "notes": "Pedido estándar sin datos personales",
+        "customer_email": "cliente1@ejemplo.com",
+    }
+    risk = evaluate_order_risk(**risk_inputs)
     assert risk["risk_level"] in ("LOW", "MEDIUM")
     assert risk["gdpr_alert"] is False
+
+    _record_risk_mapping(
+        test_name="test_low_risk_order_calculation",
+        inputs=risk_inputs,
+        actual_risk=risk,
+        expected_gdpr_alert=False,
+        allowed_risk_levels=["LOW", "MEDIUM"],
+        required_pii=[],
+        required_reasons=[],
+    )
 
 
 def test_rbac_viewer_cannot_create_and_customer_isolated():
