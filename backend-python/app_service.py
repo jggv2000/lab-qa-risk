@@ -1,776 +1,786 @@
-import os
-import re
-import secrets
-from pathlib import Path
-from typing import Literal, Optional
-from fastapi import FastAPI, Header, HTTPException, Query
-from fastapi.responses import HTMLResponse
-from pydantic import BaseModel, EmailStr, Field
+from __future__ import annotations
 
-from database import init_db
-import sqlite3
+import json
+import random
+import time
+from typing import Any, Dict, List, Optional
 
-DB_PATH = os.getenv("LAB_DB_PATH", "lab_orders.db")
-CLEAN_MODE_USER = os.getenv("CLEAN_MODE_USER", "instructor@lab.local").strip().lower()
-CLEAN_MODE_PASS = os.getenv("CLEAN_MODE_PASS", "CleanMode2026!")
+from fastapi import FastAPI, Header, HTTPException, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
 
-TestCycle = Literal["all_errors", "half_errors", "all_clean"]
-
-ACTIVE_SESSIONS: dict[str, dict] = {}
-ACTIVE_CLEAN_TOKENS: set[str] = set()
-CURRENT_CYCLE: TestCycle = "all_errors"
-
-conn = init_db(DB_PATH)
-
-
-def ensure_schema_and_seed() -> None:
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS audit_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            created_at TEXT DEFAULT (datetime('now')),
-            lab_mode TEXT NOT NULL DEFAULT 'buggy',
-            test_cycle TEXT NOT NULL DEFAULT 'all_errors',
-            actor_email TEXT NOT NULL,
-            role TEXT NOT NULL,
-            action TEXT NOT NULL,
-            status_code INTEGER NOT NULL,
-            detail TEXT NOT NULL
-        )
-        """
-    )
-    cols = [r["name"] for r in conn.execute("PRAGMA table_info(audit_logs)").fetchall()]
-    if "lab_mode" not in cols:
-        conn.execute("ALTER TABLE audit_logs ADD COLUMN lab_mode TEXT NOT NULL DEFAULT 'buggy'")
-    if "test_cycle" not in cols:
-        conn.execute("ALTER TABLE audit_logs ADD COLUMN test_cycle TEXT NOT NULL DEFAULT 'all_errors'")
-    conn.commit()
-
-
-def seed_initial_orders() -> None:
-    """Siembra datos BUENOS y MALOS en la base de datos para inspección y pruebas."""
-    existing_count = conn.execute("SELECT COUNT(*) AS cnt FROM orders").fetchone()["cnt"]
-    if existing_count == 0:
-        sample_orders = [
-            # --- DATOS BUENOS ---
-            (
-                "cliente1@ejemplo.com",
-                "cliente1@ejemplo.com",
-                200.0,
-                10.0,
-                180.0,
-                "approved",
-                1,
-                "[BUENO] Pedido estándar válido con consentimiento",
-            ),
-            (
-                "cliente2@ejemplo.com",
-                "cliente2@ejemplo.com",
-                350.0,
-                15.0,
-                297.5,
-                "pending",
-                1,
-                "[BUENO] Pedido en umbral de descuento 15%",
-            ),
-            # --- DATOS MALOS / ANÓMALOS ---
-            (
-                "cliente1@ejemplo.com",
-                "correo-invalido-sin-arroba",
-                -120.0,
-                140.0,
-                48.0,
-                "pending",
-                9,
-                "[MALO] Importe negativo, descuento >100%, email roto y consent=9",
-            ),
-            (
-                "cliente2@ejemplo.com",
-                "cliente2@ejemplo.com",
-                500.0,
-                30.0,
-                425.0,
-                "pending",
-                0,
-                "[MALO-RGPD] Llamar al 600123456 DNI 12345678A <script>alert(1)</script>",
-            ),
-        ]
-        for row in sample_orders:
-            try:
-                conn.execute(
-                    """
-                    INSERT INTO orders (
-                        owner_email, customer_email, amount, discount_pct,
-                        final_amount, status, marketing_consent, notes
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    row,
-                )
-            except sqlite3.IntegrityError:
-                continue
-        conn.commit()
-
-
-ensure_schema_and_seed()
-seed_initial_orders()
-
-app = FastAPI(
-    title="Pearson QA Risk Lab API — 3 Ciclos + Visor BD + Sintéticos",
-    description="Laboratorio endurecido con ciclos all_errors, half_errors y all_clean, controles de entrada, visor SQLite y datos sintéticos.",
-    version="4.0.0",
+from database import DatabaseManager
+from version_switches import (
+    DEFAULT_VERSION,
+    VERSION_CONFIG,
+    get_version_profile,
+    is_flag_enabled,
 )
 
+app = FastAPI(title="Risk-Based Testing Lab API", version="3.5")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
+db = DatabaseManager()
+
+LAST_API_RESPONSE: Dict[str, Any] = {
+    "status_code": 200,
+    "method": "GET",
+    "path": "/api/health",
+    "body": {"status": "ok", "default_version": DEFAULT_VERSION},
+}
+
+
+# --- Modelos de entrada ---
 class LoginRequest(BaseModel):
-    email: EmailStr
-    password: str = Field(min_length=1)
+    usuario: str
+    password: str
 
 
-class CleanModeAuthRequest(BaseModel):
-    username: str = Field(min_length=1)
-    password: str = Field(min_length=1)
+class ProfileUpdateRequest(BaseModel):
+    correo: str
+    ciudad: str
+    telefono: str
+    acepta_rgpd: bool = False
 
 
-class CycleChangeRequest(BaseModel):
-    cycle: TestCycle
+class OrderCreateRequest(BaseModel):
+    titulo: str
+    importe: float
+    cliente_id: Optional[int] = None
 
 
-class OrderFlexibleInput(BaseModel):
-    customer_email: str = Field(default="")
-    amount: float = Field(default=0.0)
-    discount_pct: float = Field(default=0.0)
-    marketing_consent: int = Field(default=0)
-    notes: str = Field(default="")
+class OrderStatusRequest(BaseModel):
+    nuevo_estado: str
 
 
-class OrderStatusUpdate(BaseModel):
-    status: Literal["pending", "approved", "cancelled"]
+class AdminSettingsRequest(BaseModel):
+    session_timeout_seconds: int = Field(ge=5, le=3600)
+    max_failed_attempts: int = Field(ge=1, le=20)
 
 
-class SyntheticBatchRequest(BaseModel):
-    profile: Literal["normal", "extremos", "rgpd", "mixto"] = "mixto"
-    count: int = Field(default=4, ge=1, le=20)
+class SyntheticDataRequest(BaseModel):
+    cantidad_pedidos: int = Field(default=20, ge=1, le=500)
+    cantidad_usuarios_extra: int = Field(default=0, ge=0, le=100)
+    calidad: str = Field(pattern="^(bien_creados|mal_creados)$")
 
 
-def fmt_order_id(order_id: int) -> str:
-    return f"ID_PED-{order_id}"
+class ImportSnapshotRequest(BaseModel):
+    snapshot: Dict[str, Any]
 
 
-def fmt_trace_id(trace_id: int) -> str:
-    return f"ID_TRA-{trace_id}"
+# --- Utilidades de versión, respuesta HTTP+JSON y trazabilidad ---
+def resolve_version(x_lab_version: Optional[str]) -> str:
+    if x_lab_version and x_lab_version in VERSION_CONFIG:
+        return x_lab_version
+    return db.get_active_version() or DEFAULT_VERSION
 
 
-def serialize_order(row) -> dict:
-    data = dict(row)
-    data["order_code"] = fmt_order_id(data["id"])
-    return data
-
-
-def serialize_audit(row) -> dict:
-    data = dict(row)
-    data["trace_code"] = fmt_trace_id(data["id"])
-    return data
-
-
-def resolve_cycle(x_test_cycle: Optional[str]) -> TestCycle:
-    if x_test_cycle in ("all_errors", "half_errors", "all_clean"):
-        return x_test_cycle
-    return CURRENT_CYCLE
-
-
-def log_audit(
-    actor_email: str,
-    role: str,
-    action: str,
+def record_http_json(
+    response: Response,
     status_code: int,
-    detail: str,
-    lab_mode: str = "buggy",
-    cycle: Optional[TestCycle] = None,
-) -> str:
-    active_cycle = cycle or CURRENT_CYCLE
-    if active_cycle == "all_errors" and action in ("LIST_ORDERS", "LIST_LOGS"):
-        return "ID_TRA-OMITIDO(ALL_ERRORS)"
-
-    recorded_mode = "buggy" if (active_cycle == "half_errors" and action == "CREATE_ORDER") else lab_mode
-    cur = conn.execute(
-        """
-        INSERT INTO audit_logs (lab_mode, test_cycle, actor_email, role, action, status_code, detail)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        """,
-        (recorded_mode, active_cycle, actor_email, role, action, status_code, detail),
-    )
-    conn.commit()
-    return fmt_trace_id(cur.lastrowid)
+    method: str,
+    path: str,
+    body: Any,
+) -> Any:
+    global LAST_API_RESPONSE
+    response.status_code = status_code
+    LAST_API_RESPONSE = {
+        "status_code": status_code,
+        "method": method,
+        "path": path,
+        "body": body,
+    }
+    return body
 
 
-def resolve_lab_mode(x_lab_mode: Optional[str], x_clean_token: Optional[str]) -> Literal["buggy", "clean"]:
-    requested = (x_lab_mode or "buggy").strip().lower()
-    if requested == "clean":
-        if x_clean_token and x_clean_token in ACTIVE_CLEAN_TOKENS:
-            return "clean"
-        raise HTTPException(
-            status_code=403,
-            detail="El modo 'clean' requiere /mode/clean-login y cabecera X-Clean-Token válida.",
-        )
-    return "buggy"
+def raise_recorded_http(
+    request: Request,
+    response: Response,
+    status_code: int,
+    body: Any,
+) -> None:
+    recorded = record_http_json(response, status_code, request.method, request.url.path, body)
+    raise HTTPException(status_code=status_code, detail=recorded)
 
 
-def get_current_user(
-    x_user_email: Optional[str],
+def write_trace(version: str, actor: str, role: str, action: str, detail: str) -> None:
+    if is_flag_enabled(version, "skip_traceability"):
+        return
+    db.add_trace(actor=actor, role=role, action=action, detail=f"[{version}] {detail}")
+
+
+def get_active_session_context(
+    request: Request,
+    response: Response,
     x_session_token: Optional[str] = None,
-    lab_mode: str = "buggy",
-    cycle: TestCycle = "all_errors",
-):
-    if not x_user_email:
-        raise HTTPException(status_code=401, detail="Falta cabecera X-User-Email")
-    email = x_user_email.strip().lower()
-    user = conn.execute(
-        "SELECT id, email, role, password FROM users WHERE lower(email) = ?",
-        (email,),
-    ).fetchone()
+    x_lab_version: Optional[str] = None,
+) -> Dict[str, Any]:
+    version = resolve_version(x_lab_version)
+    token = x_session_token or request.headers.get("x-session-token") or request.query_params.get("token")
+    if not token:
+        raise_recorded_http(request, response, 401, {"error": "Sesión no iniciada"})
+
+    session = db.get_session(token)
+    if not session:
+        raise_recorded_http(request, response, 401, {"error": "Sesión no válida o cerrada"})
+
+    settings = db.get_settings()
+    timeout_sec = int(settings.get("session_timeout_seconds", 60))
+    elapsed = time.time() - float(session["last_activity"])
+
+    if not is_flag_enabled(version, "session_no_timeout") and elapsed > timeout_sec:
+        db.delete_session(token)
+        write_trace(version, str(session["user_id"]), "session", "SESSION_EXPIRED", f"Inactividad > {timeout_sec}s")
+        raise_recorded_http(request, response, 401, {"error": "La sesión ha caducado por inactividad"})
+
+    db.touch_session(token, time.time())
+    user = db.get_user_by_id(int(session["user_id"]))
     if not user:
-        raise HTTPException(status_code=401, detail="Usuario no registrado")
+        raise_recorded_http(request, response, 401, {"error": "Usuario de sesión no encontrado"})
 
-    if cycle == "all_clean" or lab_mode == "clean":
-        if not x_session_token or x_session_token not in ACTIVE_SESSIONS:
-            raise HTTPException(status_code=401, detail="Se requiere X-Session-Token válido.")
-        if ACTIVE_SESSIONS[x_session_token]["email"] != email:
-            raise HTTPException(status_code=401, detail="Token de sesión no coincide con X-User-Email.")
-
-    return user
+    return {"user": user, "version": version, "token": token, "settings": settings}
 
 
-def validate_and_sanitize_order_fields(
-    payload: OrderFlexibleInput,
-    lab_mode: str,
-    cycle: TestCycle,
-) -> tuple[str, float, float, int, str]:
-    raw_email = (payload.customer_email or "").strip()
-    raw_notes = payload.notes or ""
-
-    # Ciclo 1: SIN CONTROLES
-    if cycle == "all_errors" and lab_mode != "clean":
-        return raw_email, payload.amount, payload.discount_pct, payload.marketing_consent, raw_notes
-
-    # Ciclo 2: CONTROLES PARCIALES (bloquea rangos numéricos imposibles; deja pasar formato email y HTML en notas)
-    if cycle == "half_errors" and lab_mode != "clean":
-        if payload.amount <= 0 or payload.amount > 100000:
-            raise HTTPException(status_code=422, detail="Control parcial: amount debe estar entre 0.01 y 100000.")
-        if payload.discount_pct < 0 or payload.discount_pct > 100:
-            raise HTTPException(status_code=422, detail="Control parcial: discount_pct debe estar entre 0 y 100.")
-        if payload.marketing_consent not in (0, 1):
-            raise HTTPException(status_code=422, detail="Control parcial: marketing_consent debe ser 0 o 1.")
-        return raw_email.lower(), payload.amount, payload.discount_pct, payload.marketing_consent, raw_notes
-
-    # Ciclo 3 (o modo CLEAN): CON CONTROLES ESTRICTOS
-    if not re.match(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$", raw_email):
-        raise HTTPException(status_code=422, detail="Control estricto: customer_email sin formato válido.")
-    if payload.amount <= 0 or payload.amount > 100000:
-        raise HTTPException(status_code=422, detail="Control estricto: amount debe ser > 0 y <= 100000.")
-    if payload.discount_pct < 0 or payload.discount_pct > 100:
-        raise HTTPException(status_code=422, detail="Control estricto: discount_pct debe estar entre 0 y 100.")
-    if payload.marketing_consent not in (0, 1):
-        raise HTTPException(status_code=422, detail="Control estricto: marketing_consent solo admite 0 o 1.")
-    if len(raw_notes) > 500:
-        raise HTTPException(status_code=422, detail="Control estricto: notes supera 500 caracteres.")
-    if "<" in raw_notes or ">" in raw_notes:
-        raise HTTPException(status_code=422, detail="Control estricto: '<' o '>' no permitidos en notes (prevención XSS).")
-
-    return raw_email.lower(), payload.amount, payload.discount_pct, payload.marketing_consent, raw_notes.strip()
+def serialize_user(user: Dict[str, Any], version: str, include_sensitive: bool = False) -> Dict[str, Any]:
+    clean = {k: v for k, v in user.items() if k != "password"}
+    if include_sensitive and (
+        is_flag_enabled(version, "expose_password") or is_flag_enabled(version, "pii_exposure_or_no_rgpd")
+    ):
+        clean["password"] = user.get("password", "")
+    return clean
 
 
-def compute_final_amount(amount: float, discount_pct: float, lab_mode: str, cycle: TestCycle) -> float:
-    standard = round(amount * (1.0 - discount_pct / 100.0), 2)
-    if lab_mode == "clean" or cycle == "all_clean":
-        return standard
-    if discount_pct > 15:
-        return round(amount * (1.0 - discount_pct / 200.0), 2)
-    return standard
+# --- UI estática y salud ---
+@app.get("/")
+def serve_index() -> FileResponse:
+    return FileResponse("static/index.html")
 
 
-def evaluate_risk_by_cycle(payload: OrderFlexibleInput, lab_mode: str, cycle: TestCycle) -> dict:
-    has_pii = bool(re.search(r"(\b\d{8}[A-Za-z]\b|\b\d{9}\b|@)", payload.notes or ""))
-    has_xss = "<" in (payload.notes or "") or ">" in (payload.notes or "")
-    findings = []
-
-    if lab_mode == "clean" or cycle == "all_clean":
-        if payload.marketing_consent == 0 and has_pii:
-            findings.append("RGPD: Datos personales/contacto en notas con marketing_consent=0.")
-        elif has_pii:
-            findings.append("Privacidad: Datos personales/contacto en notas; aplicar minimización.")
-        if has_xss:
-            findings.append("Seguridad: Etiquetas HTML/script detectadas en notas.")
-        if payload.discount_pct > 20:
-            findings.append("Negocio: Descuento superior al 20% requiere revisión.")
-        if payload.amount <= 0 or payload.discount_pct < 0 or payload.discount_pct > 100:
-            findings.append("Integridad: Valores fuera de rango permitido.")
-    elif cycle == "half_errors":
-        if payload.discount_pct > 20:
-            findings.append("Negocio: Descuento superior al 20% requiere revisión.")
-    else:
-        pass
-
-    risk_level = "ALTO" if findings else ("BAJO" if (lab_mode == "clean" or cycle == "all_clean") else "NO_EVALUADO")
-    return {
-        "cycle": cycle,
-        "lab_mode": lab_mode,
-        "risk_level": risk_level,
-        "findings": findings,
-        "marketing_consent": payload.marketing_consent,
-        "has_pii_in_notes": has_pii,
-        "has_html_in_notes": has_xss,
-    }
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
-@app.get("/health")
-def health():
-    return {
-        "status": "ok",
-        "current_cycle": CURRENT_CYCLE,
-        "db_path": DB_PATH,
-        "cycles_supported": ["all_errors", "half_errors", "all_clean"],
-    }
-
-
-@app.get("/app", response_class=HTMLResponse)
-def serve_frontend():
-    html_path = Path(__file__).resolve().parent / "static" / "index.html"
-    return HTMLResponse(content=html_path.read_text(encoding="utf-8"), status_code=200)
-
-
-@app.post("/cycle/set")
-def set_test_cycle(
-    payload: CycleChangeRequest,
-    x_user_email: Optional[str] = Header(default=None),
-    x_lab_mode: Optional[str] = Header(default="buggy"),
-    x_clean_token: Optional[str] = Header(default=None),
-):
-    global CURRENT_CYCLE
-    mode = resolve_lab_mode(x_lab_mode, x_clean_token)
-    previous = CURRENT_CYCLE
-    CURRENT_CYCLE = payload.cycle
-    actor = (x_user_email or "instructor").strip().lower()
-    role = "instructor"
-    if x_user_email:
-        u = conn.execute("SELECT role FROM users WHERE lower(email) = ?", (actor,)).fetchone()
-        if u:
-            role = u["role"]
-    trace_code = log_audit(
-        actor_email=actor,
-        role=role,
-        action="SET_CYCLE",
-        status_code=200,
-        detail=f"Ciclo cambiado de {previous} a {CURRENT_CYCLE}",
-        lab_mode=mode,
-        cycle=CURRENT_CYCLE,
+@app.get("/api/health")
+def health(request: Request, response: Response, x_lab_version: Optional[str] = Header(default=None)) -> Any:
+    version = resolve_version(x_lab_version)
+    return record_http_json(
+        response,
+        200,
+        request.method,
+        request.url.path,
+        {"status": "ok", "active_version": version},
     )
-    return {"previous_cycle": previous, "current_cycle": CURRENT_CYCLE, "trace_code": trace_code}
 
 
-@app.post("/mode/clean-login")
-def clean_mode_login(payload: CleanModeAuthRequest):
-    if payload.username.strip().lower() != CLEAN_MODE_USER or payload.password != CLEAN_MODE_PASS:
-        trace_code = log_audit(
-            actor_email=payload.username.strip().lower() or "unknown",
-            role="guest",
-            action="CLEAN_MODE_LOGIN",
-            status_code=401,
-            detail="Credenciales inválidas para modo CLEAN",
-            lab_mode="buggy",
+@app.get("/api/last-response")
+def get_last_response(request: Request, response: Response) -> Any:
+    return record_http_json(response, 200, request.method, request.url.path, LAST_API_RESPONSE)
+
+
+# --- Selector de versión (v3.1 a v3.5) ---
+@app.get("/api/version")
+def get_version(
+    request: Request,
+    response: Response,
+    x_lab_version: Optional[str] = Header(default=None),
+) -> Any:
+    version = resolve_version(x_lab_version)
+    profile = get_version_profile(version)
+    payload = {
+        "active_version": version,
+        "available_versions": list(VERSION_CONFIG.keys()),
+        "counts": profile["counts"],
+        "total_errors": profile["total_errors"],
+        "flags": profile["flags"],
+    }
+    return record_http_json(response, 200, request.method, request.url.path, payload)
+
+
+@app.post("/api/version/{version}")
+def set_version(version: str, request: Request, response: Response) -> Any:
+    if version not in VERSION_CONFIG:
+        return record_http_json(
+            response,
+            400,
+            request.method,
+            request.url.path,
+            {"error": "Versión inválida. Valores permitidos: v3.1, v3.2, v3.3, v3.4, v3.5"},
         )
-        raise HTTPException(status_code=401, detail=f"Credenciales de modo CLEAN inválidas ({trace_code})")
-    token = secrets.token_hex(24)
-    ACTIVE_CLEAN_TOKENS.add(token)
-    trace_code = log_audit(
-        actor_email=CLEAN_MODE_USER,
-        role="clean_operator",
-        action="CLEAN_MODE_LOGIN",
-        status_code=200,
-        detail="Modo CLEAN activado",
-        lab_mode="clean",
+    db.set_active_version(version)
+    write_trace(version, "system", "system", "SET_VERSION", f"Versión activa establecida en {version}")
+    profile = get_version_profile(version)
+    return record_http_json(
+        response,
+        200,
+        request.method,
+        request.url.path,
+        {"active_version": version, "counts": profile["counts"], "total_errors": profile["total_errors"]},
     )
-    return {"lab_mode": "clean", "clean_token": token, "trace_code": trace_code}
 
 
-@app.post("/login")
+# --- Autenticación, bloqueo y cierre de sesión ---
+@app.post("/api/auth/login")
 def login(
     payload: LoginRequest,
-    x_lab_mode: Optional[str] = Header(default="buggy"),
-    x_clean_token: Optional[str] = Header(default=None),
-    x_test_cycle: Optional[str] = Header(default=None),
-):
-    mode = resolve_lab_mode(x_lab_mode, x_clean_token)
-    cycle = resolve_cycle(x_test_cycle)
-    email = payload.email.strip().lower()
-    user = conn.execute(
-        "SELECT id, email, role, password FROM users WHERE lower(email) = ?",
-        (email,),
-    ).fetchone()
-    stored_password = user["password"] if user and "password" in user.keys() else (user["password_hash"] if user and "password_hash" in user.keys() else None)
-    if not user or stored_password != payload.password:
-        trace_code = log_audit(email, "unknown", "LOGIN", 401, "Login fallido", mode, cycle)
-        raise HTTPException(status_code=401, detail=f"Credenciales inválidas ({trace_code})")
+    request: Request,
+    response: Response,
+    x_lab_version: Optional[str] = Header(default=None),
+) -> Any:
+    version = resolve_version(x_lab_version)
+    settings = db.get_settings()
+    max_attempts = int(settings.get("max_failed_attempts", 5))
+    timeout_sec = int(settings.get("session_timeout_seconds", 60))
 
-    session_token = secrets.token_hex(20)
-    ACTIVE_SESSIONS[session_token] = {"email": user["email"], "role": user["role"]}
-    trace_code = log_audit(user["email"], user["role"], "LOGIN", 200, "Inicio de sesión correcto", mode, cycle)
-    return {
-        "authenticated": True,
-        "lab_mode": mode,
-        "cycle": cycle,
-        "email": user["email"],
-        "role": user["role"],
-        "session_token": session_token,
-        "trace_code": trace_code,
-    }
+    user = db.get_user_by_login(payload.usuario.strip())
+    if not user:
+        write_trace(version, payload.usuario, "anonymous", "LOGIN_FAILED", "Usuario no encontrado")
+        return record_http_json(response, 401, request.method, request.url.path, {"error": "Credenciales incorrectas"})
 
+    if bool(user.get("locked", False)):
+        write_trace(version, user["username"], user["role"], "LOGIN_BLOCKED", "Usuario bloqueado por intentos fallidos")
+        return record_http_json(
+            response,
+            403,
+            request.method,
+            request.url.path,
+            {"error": "Usuario bloqueado. Solicite desbloqueo al administrador.", "locked": True},
+        )
 
-@app.post("/logout")
-def logout(
-    x_user_email: Optional[str] = Header(default=None),
-    x_session_token: Optional[str] = Header(default=None),
-    x_lab_mode: Optional[str] = Header(default="buggy"),
-    x_clean_token: Optional[str] = Header(default=None),
-    x_test_cycle: Optional[str] = Header(default=None),
-):
-    mode = resolve_lab_mode(x_lab_mode, x_clean_token)
-    cycle = resolve_cycle(x_test_cycle)
-    if x_session_token and x_session_token in ACTIVE_SESSIONS:
-        ACTIVE_SESSIONS.pop(x_session_token, None)
-    actor = (x_user_email or "anonymous").strip().lower()
-    role = "guest"
-    if x_user_email:
-        u = conn.execute("SELECT role FROM users WHERE lower(email) = ?", (actor,)).fetchone()
-        if u:
-            role = u["role"]
-    trace_code = log_audit(actor, role, "LOGOUT", 200, "Cierre de sesión", mode, cycle)
-    return {"authenticated": False, "lab_mode": mode, "cycle": cycle, "trace_code": trace_code}
+    valid_password = user["password"] == payload.password
+    if is_flag_enabled(version, "owasp_weak_auth_input") and payload.password in ("1234", "admin", "password"):
+        valid_password = True
 
+    if not valid_password:
+        attempts = int(user.get("failed_attempts", 0)) + 1
+        locked = attempts >= max_attempts
+        db.set_user_login_state(int(user["id"]), failed_attempts=attempts, locked=locked)
+        write_trace(
+            version,
+            user["username"],
+            user["role"],
+            "LOGIN_FAILED",
+            f"Intento {attempts}/{max_attempts} | locked={locked}",
+        )
+        return record_http_json(
+            response,
+            401,
+            request.method,
+            request.url.path,
+            {
+                "error": "Contraseña incorrecta",
+                "failed_attempts": attempts,
+                "max_failed_attempts": max_attempts,
+                "locked": locked,
+            },
+        )
 
-@app.post("/reset-lab")
-def reset_lab(
-    x_user_email: Optional[str] = Header(default=None),
-    x_session_token: Optional[str] = Header(default=None),
-    x_lab_mode: Optional[str] = Header(default="buggy"),
-    x_clean_token: Optional[str] = Header(default=None),
-    x_test_cycle: Optional[str] = Header(default=None),
-):
-    mode = resolve_lab_mode(x_lab_mode, x_clean_token)
-    cycle = resolve_cycle(x_test_cycle)
-    user = get_current_user(x_user_email, x_session_token, mode, cycle)
+    db.set_user_login_state(int(user["id"]), failed_attempts=0, locked=False)
+    token = db.create_session(int(user["id"]), time.time())
+    write_trace(version, user["username"], user["role"], "LOGIN_SUCCESS", "Sesión iniciada")
 
-    if cycle != "all_errors" and user["role"] != "admin":
-        trace_code = log_audit(user["email"], user["role"], "RESET_LAB", 403, "Intento no autorizado de reset", mode, cycle)
-        raise HTTPException(status_code=403, detail=f"Solo admin puede reiniciar ({trace_code})")
+    user_info = serialize_user(user, version, include_sensitive=True)
+    if is_flag_enabled(version, "expose_password"):
+        user_info["password_visible"] = user["password"]
 
-    conn.execute("DELETE FROM orders")
-    conn.execute("DELETE FROM sqlite_sequence WHERE name='orders'")
-    conn.execute("DELETE FROM audit_logs")
-    conn.execute("DELETE FROM sqlite_sequence WHERE name='audit_logs'")
-    conn.commit()
-    seed_initial_orders()
-
-    trace_code = log_audit(user["email"], user["role"], "RESET_LAB", 200, "Laboratorio reiniciado con datos buenos y malos", mode, cycle)
-    return {"reset": True, "cycle": cycle, "trace_code": trace_code}
-
-
-@app.post("/orders/ai-risk-check")
-def ai_risk_check(
-    payload: OrderFlexibleInput,
-    x_user_email: Optional[str] = Header(default=None),
-    x_session_token: Optional[str] = Header(default=None),
-    x_lab_mode: Optional[str] = Header(default="buggy"),
-    x_clean_token: Optional[str] = Header(default=None),
-    x_test_cycle: Optional[str] = Header(default=None),
-):
-    mode = resolve_lab_mode(x_lab_mode, x_clean_token)
-    cycle = resolve_cycle(x_test_cycle)
-    user = get_current_user(x_user_email, x_session_token, mode, cycle)
-    if user["role"] == "viewer" and (mode == "clean" or cycle == "all_clean"):
-        raise HTTPException(status_code=403, detail="Viewer sin permiso para evaluar riesgo/RGPD")
-
-    assessment = evaluate_risk_by_cycle(payload, mode, cycle)
-    trace_code = log_audit(
-        user["email"],
-        user["role"],
-        "AI_RISK_CHECK",
+    return record_http_json(
+        response,
         200,
-        f"Riesgo={assessment['risk_level']} hallazgos={len(assessment['findings'])}",
-        mode,
-        cycle,
+        request.method,
+        request.url.path,
+        {
+            "token": token,
+            "user": user_info,
+            "session_timeout_seconds": timeout_sec,
+            "max_failed_attempts": max_attempts,
+        },
     )
-    return {"cycle": cycle, "lab_mode": mode, "assessment": assessment, "trace_code": trace_code}
 
 
-@app.post("/orders", status_code=201)
-def create_order(
-    payload: OrderFlexibleInput,
-    x_user_email: Optional[str] = Header(default=None),
+@app.post("/api/auth/logout")
+def logout(
+    request: Request,
+    response: Response,
     x_session_token: Optional[str] = Header(default=None),
-    x_lab_mode: Optional[str] = Header(default="buggy"),
-    x_clean_token: Optional[str] = Header(default=None),
-    x_test_cycle: Optional[str] = Header(default=None),
-):
-    mode = resolve_lab_mode(x_lab_mode, x_clean_token)
-    cycle = resolve_cycle(x_test_cycle)
-    user = get_current_user(x_user_email, x_session_token, mode, cycle)
+    x_lab_version: Optional[str] = Header(default=None),
+) -> Any:
+    ctx = get_active_session_context(request, response, x_session_token, x_lab_version)
+    db.delete_session(ctx["token"])
+    write_trace(ctx["version"], ctx["user"]["username"], ctx["user"]["role"], "LOGOUT", "Sesión cerrada")
+    return record_http_json(response, 200, request.method, request.url.path, {"message": "Sesión cerrada correctamente"})
 
-    try:
-        cust_email, amount, discount_pct, consent, clean_notes = validate_and_sanitize_order_fields(
-            payload, mode, cycle
-        )
-    except HTTPException as exc:
-        trace_code = log_audit(
-            user["email"], user["role"], "CREATE_ORDER_VALIDATION", exc.status_code, str(exc.detail), mode, cycle
-        )
-        raise HTTPException(status_code=exc.status_code, detail=f"{exc.detail} ({trace_code})")
 
-    if (cycle != "all_errors" or mode == "clean") and user["role"] == "viewer":
-        trace_code = log_audit(user["email"], user["role"], "CREATE_ORDER", 403, "Rol viewer sin permiso de escritura", mode, cycle)
-        raise HTTPException(status_code=403, detail=f"No autorizado para rol viewer ({trace_code})")
-
-    if cycle != "all_errors" and user["role"] == "customer" and cust_email != user["email"].lower():
-        trace_code = log_audit(user["email"], user["role"], "CREATE_ORDER", 403, "Pedido para tercero bloqueado", mode, cycle)
-        raise HTTPException(status_code=403, detail=f"No autorizado ({trace_code})")
-
-    final_amount = compute_final_amount(amount, discount_pct, mode, cycle)
-    cur = conn.execute(
-        """
-        INSERT INTO orders (
-            owner_email, customer_email, amount, discount_pct,
-            final_amount, status, marketing_consent, notes
-        )
-        VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)
-        """,
-        (user["email"], cust_email, amount, discount_pct, final_amount, consent, clean_notes),
+# --- Perfil de usuario, RGPD, listado de usuarios y desbloqueo ---
+@app.get("/api/users/me")
+def get_me(
+    request: Request,
+    response: Response,
+    x_session_token: Optional[str] = Header(default=None),
+    x_lab_version: Optional[str] = Header(default=None),
+) -> Any:
+    ctx = get_active_session_context(request, response, x_session_token, x_lab_version)
+    return record_http_json(
+        response,
+        200,
+        request.method,
+        request.url.path,
+        {"user": serialize_user(ctx["user"], ctx["version"], include_sensitive=True)},
     )
-    conn.commit()
-    order_code = fmt_order_id(cur.lastrowid)
-    trace_code = log_audit(
-        user["email"], user["role"], "CREATE_ORDER", 201, f"Creado {order_code} final={final_amount}", mode, cycle
+
+
+@app.put("/api/users/me")
+def update_me(
+    payload: ProfileUpdateRequest,
+    request: Request,
+    response: Response,
+    x_session_token: Optional[str] = Header(default=None),
+    x_lab_version: Optional[str] = Header(default=None),
+) -> Any:
+    ctx = get_active_session_context(request, response, x_session_token, x_lab_version)
+    user = ctx["user"]
+    version = ctx["version"]
+
+    if user["role"] == "viewer" and not is_flag_enabled(version, "viewer_can_modify"):
+        return record_http_json(
+            response,
+            403,
+            request.method,
+            request.url.path,
+            {"error": "El rol viewer no puede modificar datos"},
+        )
+
+    if not is_flag_enabled(version, "pii_exposure_or_no_rgpd") and not payload.acepta_rgpd:
+        return record_http_json(
+            response,
+            400,
+            request.method,
+            request.url.path,
+            {"error": "Debe aceptar la Política de Privacidad y Protección de Datos (RGPD)"},
+        )
+
+    if not is_flag_enabled(version, "weak_field_validation"):
+        if "@" not in payload.correo or len(payload.ciudad.strip()) < 2 or len(payload.telefono.strip()) < 6:
+            return record_http_json(
+                response,
+                400,
+                request.method,
+                request.url.path,
+                {"error": "Revise correo, ciudad y teléfono antes de guardar"},
+            )
+
+    updated = db.update_user_profile(
+        int(user["id"]),
+        correo=payload.correo.strip(),
+        ciudad=payload.ciudad.strip(),
+        telefono=payload.telefono.strip(),
+        acepta_rgpd=bool(payload.acepta_rgpd),
     )
-    row = conn.execute("SELECT * FROM orders WHERE id = ?", (cur.lastrowid,)).fetchone()
-    order_data = serialize_order(row)
-    order_data["trace_code"] = trace_code
-    return {"cycle": cycle, "lab_mode": mode, "order": order_data, "trace_code": trace_code}
+    write_trace(version, user["username"], user["role"], "UPDATE_PROFILE", f"RGPD={payload.acepta_rgpd}")
+    return record_http_json(
+        response,
+        200,
+        request.method,
+        request.url.path,
+        {"user": serialize_user(updated, version, include_sensitive=True)},
+    )
 
 
-@app.get("/orders")
+@app.get("/api/users")
+def list_users(
+    request: Request,
+    response: Response,
+    x_session_token: Optional[str] = Header(default=None),
+    x_lab_version: Optional[str] = Header(default=None),
+) -> Any:
+    ctx = get_active_session_context(request, response, x_session_token, x_lab_version)
+    user = ctx["user"]
+    version = ctx["version"]
+
+    if user["role"] != "admin" and not is_flag_enabled(version, "broken_rbac_escalation"):
+        write_trace(version, user["username"], user["role"], "FORBIDDEN", "Intento de ver todos los usuarios")
+        return record_http_json(
+            response,
+            403,
+            request.method,
+            request.url.path,
+            {"error": "Solo el administrador puede ver los datos de todos los usuarios"},
+        )
+
+    users = [serialize_user(u, version, include_sensitive=True) for u in db.get_all_users()]
+    write_trace(version, user["username"], user["role"], "LIST_USERS", f"Total usuarios: {len(users)}")
+    return record_http_json(response, 200, request.method, request.url.path, {"users": users})
+
+
+@app.post("/api/users/{target_user_id}/unlock")
+def unlock_user(
+    target_user_id: int,
+    request: Request,
+    response: Response,
+    x_session_token: Optional[str] = Header(default=None),
+    x_lab_version: Optional[str] = Header(default=None),
+) -> Any:
+    ctx = get_active_session_context(request, response, x_session_token, x_lab_version)
+    user = ctx["user"]
+    version = ctx["version"]
+
+    if user["role"] != "admin" and not is_flag_enabled(version, "broken_rbac_escalation"):
+        write_trace(version, user["username"], user["role"], "FORBIDDEN", f"Intento de desbloquear ID {target_user_id}")
+        return record_http_json(
+            response,
+            403,
+            request.method,
+            request.url.path,
+            {"error": "Solo el usuario administrador puede desbloquear usuarios"},
+        )
+
+    unlocked = db.unlock_user(target_user_id)
+    if not unlocked:
+        return record_http_json(response, 404, request.method, request.url.path, {"error": "Usuario no encontrado"})
+
+    write_trace(version, user["username"], user["role"], "UNLOCK_USER", f"Usuario #{target_user_id} desbloqueado")
+    return record_http_json(
+        response,
+        200,
+        request.method,
+        request.url.path,
+        {"message": "Usuario desbloqueado", "user": serialize_user(unlocked, version, include_sensitive=True)},
+    )
+
+
+# --- Pedidos y flujo de estados ---
+@app.get("/api/orders")
 def list_orders(
-    x_user_email: Optional[str] = Header(default=None),
+    request: Request,
+    response: Response,
     x_session_token: Optional[str] = Header(default=None),
-    x_lab_mode: Optional[str] = Header(default="buggy"),
-    x_clean_token: Optional[str] = Header(default=None),
-    x_test_cycle: Optional[str] = Header(default=None),
-):
-    mode = resolve_lab_mode(x_lab_mode, x_clean_token)
-    cycle = resolve_cycle(x_test_cycle)
-    user = get_current_user(x_user_email, x_session_token, mode, cycle)
-    if user["role"] in ("admin", "viewer"):
-        rows = conn.execute("SELECT * FROM orders ORDER BY id DESC").fetchall()
+    x_lab_version: Optional[str] = Header(default=None),
+) -> Any:
+    ctx = get_active_session_context(request, response, x_session_token, x_lab_version)
+    user = ctx["user"]
+    version = ctx["version"]
+
+    if user["role"] in ("viewer", "admin"):
+        orders = db.get_all_orders()
     else:
-        rows = conn.execute(
-            "SELECT * FROM orders WHERE lower(owner_email) = ? OR lower(customer_email) = ? ORDER BY id DESC",
-            (user["email"].lower(), user["email"].lower()),
-        ).fetchall()
-    log_audit(user["email"], user["role"], "LIST_ORDERS", 200, f"Total={len(rows)}", mode, cycle)
-    return {"cycle": cycle, "lab_mode": mode, "orders": [serialize_order(r) for r in rows]}
+        orders = db.get_orders_by_owner(int(user["id"]))
+
+    write_trace(version, user["username"], user["role"], "LIST_ORDERS", f"Devueltos {len(orders)} pedidos")
+    return record_http_json(response, 200, request.method, request.url.path, {"orders": orders})
 
 
-@app.patch("/orders/{order_id}/status")
+@app.get("/api/orders/{order_id}")
+def get_order(
+    order_id: int,
+    request: Request,
+    response: Response,
+    x_session_token: Optional[str] = Header(default=None),
+    x_lab_version: Optional[str] = Header(default=None),
+) -> Any:
+    ctx = get_active_session_context(request, response, x_session_token, x_lab_version)
+    user = ctx["user"]
+    version = ctx["version"]
+
+    order = db.get_order_by_id(order_id)
+    if not order:
+        return record_http_json(response, 404, request.method, request.url.path, {"error": "Pedido no encontrado"})
+
+    if user["role"] == "cliente" and int(order["owner_id"]) != int(user["id"]) and not is_flag_enabled(version, "idor"):
+        return record_http_json(response, 403, request.method, request.url.path, {"error": "Acceso denegado a pedido ajeno"})
+
+    return record_http_json(response, 200, request.method, request.url.path, {"order": order})
+
+
+@app.post("/api/orders")
+def create_order(
+    payload: OrderCreateRequest,
+    request: Request,
+    response: Response,
+    x_session_token: Optional[str] = Header(default=None),
+    x_lab_version: Optional[str] = Header(default=None),
+) -> Any:
+    ctx = get_active_session_context(request, response, x_session_token, x_lab_version)
+    user = ctx["user"]
+    version = ctx["version"]
+
+    if user["role"] == "viewer" and not is_flag_enabled(version, "viewer_can_modify"):
+        return record_http_json(response, 403, request.method, request.url.path, {"error": "El rol viewer no puede crear pedidos"})
+
+    if not is_flag_enabled(version, "weak_field_validation"):
+        if not payload.titulo.strip() or payload.importe <= 0:
+            return record_http_json(
+                response,
+                400,
+                request.method,
+                request.url.path,
+                {"error": "El título es obligatorio y el importe debe ser mayor que 0"},
+            )
+
+    owner_id = int(payload.cliente_id) if (user["role"] == "admin" and payload.cliente_id) else int(user["id"])
+    order = db.create_order(owner_id=owner_id, titulo=payload.titulo.strip(), importe=float(payload.importe), estado="En proceso")
+    write_trace(version, user["username"], user["role"], "CREATE_ORDER", f"Pedido #{order['id']} creado (En proceso)")
+    return record_http_json(response, 201, request.method, request.url.path, {"order": order})
+
+
+@app.patch("/api/orders/{order_id}/status")
 def update_order_status(
     order_id: int,
-    payload: OrderStatusUpdate,
-    x_user_email: Optional[str] = Header(default=None),
+    payload: OrderStatusRequest,
+    request: Request,
+    response: Response,
     x_session_token: Optional[str] = Header(default=None),
-    x_lab_mode: Optional[str] = Header(default="buggy"),
-    x_clean_token: Optional[str] = Header(default=None),
-    x_test_cycle: Optional[str] = Header(default=None),
-):
-    mode = resolve_lab_mode(x_lab_mode, x_clean_token)
-    cycle = resolve_cycle(x_test_cycle)
-    user = get_current_user(x_user_email, x_session_token, mode, cycle)
-    order_code = fmt_order_id(order_id)
+    x_lab_version: Optional[str] = Header(default=None),
+) -> Any:
+    ctx = get_active_session_context(request, response, x_session_token, x_lab_version)
+    user = ctx["user"]
+    version = ctx["version"]
+    role = user["role"]
+    target = payload.nuevo_estado.strip()
 
-    if cycle == "all_clean" and user["role"] != "admin":
-        trace_code = log_audit(user["email"], user["role"], "UPDATE_ORDER_STATUS", 403, f"Denegado {order_code}", mode, cycle)
-        raise HTTPException(status_code=403, detail=f"Solo admin puede cambiar estado ({trace_code})")
+    if role == "viewer" and not is_flag_enabled(version, "viewer_can_modify"):
+        return record_http_json(response, 403, request.method, request.url.path, {"error": "El rol viewer no puede modificar pedidos"})
 
-    existing = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
-    if not existing:
-        raise HTTPException(status_code=404, detail=f"{order_code} no encontrado")
+    order = db.get_order_by_id(order_id)
+    if not order:
+        return record_http_json(response, 404, request.method, request.url.path, {"error": "Pedido no encontrado"})
 
-    conn.execute("UPDATE orders SET status = ? WHERE id = ?", (payload.status, order_id))
-    conn.commit()
-    trace_code = log_audit(user["email"], user["role"], "UPDATE_ORDER_STATUS", 200, f"{order_code} -> {payload.status}", mode, cycle)
-    updated = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
-    return {"cycle": cycle, "lab_mode": mode, "order": serialize_order(updated), "trace_code": trace_code}
+    if role == "cliente" and int(order["owner_id"]) != int(user["id"]) and not is_flag_enabled(version, "idor"):
+        return record_http_json(response, 403, request.method, request.url.path, {"error": "No puede modificar pedidos de otro usuario"})
+
+    current = order["estado"]
+    if not is_flag_enabled(version, "broken_order_workflow"):
+        if role == "cliente":
+            if current == "Aprobado" and target == "Rechazado":
+                return record_http_json(
+                    response,
+                    400,
+                    request.method,
+                    request.url.path,
+                    {"error": "Si el pedido está Aprobado, el cliente ya no puede rechazarlo"},
+                )
+            if not (current in ("Creado", "En proceso") and target == "Eliminado"):
+                return record_http_json(
+                    response,
+                    403,
+                    request.method,
+                    request.url.path,
+                    {"error": "El cliente solo puede eliminar un pedido creado/en proceso mientras no esté aprobado"},
+                )
+        elif role == "admin":
+            if current in ("Creado", "En proceso") and target not in {"Aprobado", "Rechazado", "Eliminado"}:
+                return record_http_json(response, 400, request.method, request.url.path, {"error": "Transición no válida"})
+            if current == "Aprobado" and target not in {"Rechazado", "Eliminado", "Entregado"}:
+                return record_http_json(response, 400, request.method, request.url.path, {"error": "Transición no válida desde Aprobado"})
+            if current not in ("Creado", "En proceso", "Aprobado") and target not in {"Eliminado"}:
+                return record_http_json(response, 400, request.method, request.url.path, {"error": "Estado actual no admite esa transición"})
+
+    updated = db.update_order_status(order_id, target)
+    write_trace(version, user["username"], role, "ORDER_STATUS", f"Pedido #{order_id}: {current} -> {target}")
+    return record_http_json(response, 200, request.method, request.url.path, {"order": updated})
 
 
-@app.delete("/orders/{order_id}")
+@app.delete("/api/orders/{order_id}")
 def delete_order(
     order_id: int,
-    x_user_email: Optional[str] = Header(default=None),
+    request: Request,
+    response: Response,
     x_session_token: Optional[str] = Header(default=None),
-    x_lab_mode: Optional[str] = Header(default="buggy"),
-    x_clean_token: Optional[str] = Header(default=None),
-    x_test_cycle: Optional[str] = Header(default=None),
-):
-    mode = resolve_lab_mode(x_lab_mode, x_clean_token)
-    cycle = resolve_cycle(x_test_cycle)
-    user = get_current_user(x_user_email, x_session_token, mode, cycle)
-    order_code = fmt_order_id(order_id)
+    x_lab_version: Optional[str] = Header(default=None),
+) -> Any:
+    ctx = get_active_session_context(request, response, x_session_token, x_lab_version)
+    user = ctx["user"]
+    version = ctx["version"]
 
-    if cycle == "all_clean" and user["role"] != "admin":
-        trace_code = log_audit(user["email"], user["role"], "DELETE_ORDER", 403, f"Denegado borrar {order_code}", mode, cycle)
-        raise HTTPException(status_code=403, detail=f"Solo admin puede borrar ({trace_code})")
+    if user["role"] == "viewer" and not is_flag_enabled(version, "viewer_can_modify"):
+        return record_http_json(response, 403, request.method, request.url.path, {"error": "El rol viewer no puede eliminar pedidos"})
 
-    existing = conn.execute("SELECT * FROM orders WHERE id = ?", (order_id,)).fetchone()
-    if not existing:
-        raise HTTPException(status_code=404, detail=f"{order_code} no encontrado")
+    order = db.get_order_by_id(order_id)
+    if not order:
+        return record_http_json(response, 404, request.method, request.url.path, {"error": "Pedido no encontrado"})
 
-    conn.execute("DELETE FROM orders WHERE id = ?", (order_id,))
-    conn.commit()
-    trace_code = log_audit(user["email"], user["role"], "DELETE_ORDER", 200, f"Borrado {order_code}", mode, cycle)
-    return {"deleted": True, "order_code": order_code, "cycle": cycle, "trace_code": trace_code}
+    if user["role"] == "cliente" and int(order["owner_id"]) != int(user["id"]) and not is_flag_enabled(version, "idor"):
+        return record_http_json(response, 403, request.method, request.url.path, {"error": "No puede eliminar pedidos de otro usuario"})
+
+    db.delete_order(order_id)
+    write_trace(version, user["username"], user["role"], "DELETE_ORDER", f"Pedido #{order_id} eliminado")
+    return record_http_json(response, 200, request.method, request.url.path, {"deleted_order_id": order_id})
 
 
-@app.get("/audit-logs")
-def get_audit_logs(
-    limit: int = Query(default=25, ge=1, le=100),
-    actor_filter: Optional[str] = Query(default=None),
-    x_user_email: Optional[str] = Header(default=None),
+# --- Trazabilidad y prueba de rendimiento ---
+@app.get("/api/traceability")
+def list_traceability(
+    request: Request,
+    response: Response,
     x_session_token: Optional[str] = Header(default=None),
-    x_lab_mode: Optional[str] = Header(default="buggy"),
-    x_clean_token: Optional[str] = Header(default=None),
-    x_test_cycle: Optional[str] = Header(default=None),
-):
-    mode = resolve_lab_mode(x_lab_mode, x_clean_token)
-    cycle = resolve_cycle(x_test_cycle)
-    user = get_current_user(x_user_email, x_session_token, mode, cycle)
-
-    if user["role"] == "admin" or cycle == "all_errors":
-        if actor_filter and actor_filter.strip():
-            rows = conn.execute(
-                "SELECT * FROM audit_logs WHERE lower(actor_email) LIKE ? ORDER BY id DESC LIMIT ?",
-                (f"%{actor_filter.strip().lower()}%", limit),
-            ).fetchall()
-        else:
-            rows = conn.execute("SELECT * FROM audit_logs ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
-    else:
-        rows = conn.execute(
-            "SELECT * FROM audit_logs WHERE lower(actor_email) = ? ORDER BY id DESC LIMIT ?",
-            (user["email"].lower(), limit),
-        ).fetchall()
-
-    return {"cycle": cycle, "lab_mode": mode, "count": len(rows), "logs": [serialize_audit(r) for r in rows]}
+    x_lab_version: Optional[str] = Header(default=None),
+) -> Any:
+    ctx = get_active_session_context(request, response, x_session_token, x_lab_version)
+    traces = db.get_traces()
+    return record_http_json(response, 200, request.method, request.url.path, {"traces": traces})
 
 
-@app.get("/db/inspect")
-def inspect_database(
-    sample_limit: int = Query(default=10, ge=1, le=50),
-    x_user_email: Optional[str] = Header(default=None),
+@app.post("/api/performance/check")
+def performance_check(
+    request: Request,
+    response: Response,
     x_session_token: Optional[str] = Header(default=None),
-    x_lab_mode: Optional[str] = Header(default="buggy"),
-    x_clean_token: Optional[str] = Header(default=None),
-    x_test_cycle: Optional[str] = Header(default=None),
-):
-    mode = resolve_lab_mode(x_lab_mode, x_clean_token)
-    cycle = resolve_cycle(x_test_cycle)
-    user = get_current_user(x_user_email, x_session_token, mode, cycle)
-
-    if (mode == "clean" or cycle == "all_clean") and user["role"] != "admin":
-        trace_code = log_audit(user["email"], user["role"], "DB_INSPECT", 403, "Denegado visor BD", mode, cycle)
-        raise HTTPException(status_code=403, detail=f"Solo admin puede inspeccionar BD ({trace_code})")
-
-    counts = {
-        "users": conn.execute("SELECT COUNT(*) AS c FROM users").fetchone()["c"],
-        "orders": conn.execute("SELECT COUNT(*) AS c FROM orders").fetchone()["c"],
-        "audit_logs": conn.execute("SELECT COUNT(*) AS c FROM audit_logs").fetchone()["c"],
-    }
-    schema = {
-        tbl: [
-            {"name": r["name"], "type": r["type"], "notnull": bool(r["notnull"])}
-            for r in conn.execute(f"PRAGMA table_info({tbl})").fetchall()
-        ]
-        for tbl in ("users", "orders", "audit_logs")
-    }
-    recent_orders = [serialize_order(r) for r in conn.execute("SELECT * FROM orders ORDER BY id DESC LIMIT ?", (sample_limit,)).fetchall()]
-    recent_logs = [serialize_audit(r) for r in conn.execute("SELECT * FROM audit_logs ORDER BY id DESC LIMIT ?", (sample_limit,)).fetchall()]
-
-    trace_code = log_audit(user["email"], user["role"], "DB_INSPECT", 200, f"Inspección BD orders={counts['orders']}", mode, cycle)
-    return {
-        "cycle": cycle,
-        "lab_mode": mode,
-        "db_path": DB_PATH,
-        "counts": counts,
-        "schema": schema,
-        "recent_orders": recent_orders,
-        "recent_logs": recent_logs,
-        "trace_code": trace_code,
-    }
-
-
-@app.post("/test-data/generate")
-def generate_synthetic_data(
-    payload: SyntheticBatchRequest,
-    x_user_email: Optional[str] = Header(default=None),
-    x_session_token: Optional[str] = Header(default=None),
-    x_lab_mode: Optional[str] = Header(default="buggy"),
-    x_clean_token: Optional[str] = Header(default=None),
-    x_test_cycle: Optional[str] = Header(default=None),
-):
-    mode = resolve_lab_mode(x_lab_mode, x_clean_token)
-    cycle = resolve_cycle(x_test_cycle)
-    user = get_current_user(x_user_email, x_session_token, mode, cycle)
-    if user["role"] != "admin":
-        trace_code = log_audit(user["email"], user["role"], "GEN_SYNTHETIC_DATA", 403, "Denegado sintéticos", mode, cycle)
-        raise HTTPException(status_code=403, detail=f"Solo admin puede generar sintéticos ({trace_code})")
-
-    templates = {
-        "normal": [
-            ("cliente1@ejemplo.com", 150.0, 5.0, 1, "[BUENO] Sintético normal descuento bajo"),
-            ("cliente2@ejemplo.com", 240.0, 10.0, 1, "[BUENO] Sintético normal estándar"),
-        ],
-        "extremos": [
-            ("cliente1@ejemplo.com", 100.0, 0.0, 1, "[EXTREMO] Descuento 0%"),
-            ("cliente2@ejemplo.com", 500.0, 15.0, 1, "[EXTREMO] Umbral 15%"),
-            ("cliente1@ejemplo.com", 1000.0, 25.0, 0, "[EXTREMO] Descuento 25% (>15%)"),
-            ("cliente2@ejemplo.com", 750.0, 100.0, 0, "[EXTREMO] Descuento 100%"),
-        ],
-        "rgpd": [
-            ("cliente2@ejemplo.com", 420.0, 20.0, 0, "[MALO-RGPD] Tel 600000111 DNI-00000001A consent=0"),
-            ("correo-roto-sin-arroba", -50.0, 130.0, 9, "[MALO-CAMPOS] Registro anómalo para auditoría"),
-        ],
-    }
-    pool = templates["normal"] + templates["extremos"] + templates["rgpd"] if payload.profile == "mixto" else templates[payload.profile]
-
-    created_codes = []
-    for idx in range(payload.count):
-        cust, amt, disc, consent, note = pool[idx % len(pool)]
-        final_amt = compute_final_amount(amt, disc, mode, cycle)
-        cur = conn.execute(
-            """
-            INSERT INTO orders (
-                owner_email, customer_email, amount, discount_pct,
-                final_amount, status, marketing_consent, notes
-            )
-            VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)
-            """,
-            (user["email"], cust, amt, disc, final_amt, consent, f"{note} [#{idx + 1}]"),
-        )
-        created_codes.append(fmt_order_id(cur.lastrowid))
-
-    conn.commit()
-    trace_code = log_audit(
-        user["email"], user["role"], "GEN_SYNTHETIC_DATA", 201, f"Generados {len(created_codes)} ({payload.profile})", mode, cycle
+    x_lab_version: Optional[str] = Header(default=None),
+) -> Any:
+    ctx = get_active_session_context(request, response, x_session_token, x_lab_version)
+    version = ctx["version"]
+    sleep_sec = 6.0 if is_flag_enabled(version, "slow_hanging_button") else 0.15
+    time.sleep(sleep_sec)
+    write_trace(version, ctx["user"]["username"], ctx["user"]["role"], "PERF_CHECK", f"Duración {sleep_sec}s")
+    return record_http_json(
+        response,
+        200,
+        request.method,
+        request.url.path,
+        {"status": "ok", "elapsed_seconds": sleep_sec, "hanging_simulated": is_flag_enabled(version, "slow_hanging_button")},
     )
-    return {
-        "cycle": cycle,
-        "lab_mode": mode,
-        "profile": payload.profile,
-        "generated_count": len(created_codes),
-        "order_codes": created_codes,
-        "trace_code": trace_code,
+
+
+# --- Administración: tablas, parámetros, datos sintéticos, reinicio, exportar/importar ---
+@app.get("/api/admin/tables")
+def admin_tables(
+    request: Request,
+    response: Response,
+    x_session_token: Optional[str] = Header(default=None),
+    x_lab_version: Optional[str] = Header(default=None),
+) -> Any:
+    ctx = get_active_session_context(request, response, x_session_token, x_lab_version)
+    user = ctx["user"]
+    version = ctx["version"]
+
+    if user["role"] != "admin" and not is_flag_enabled(version, "broken_rbac_escalation"):
+        return record_http_json(response, 403, request.method, request.url.path, {"error": "Acceso exclusivo para administrador"})
+
+    payload = {
+        "usuarios": [serialize_user(u, version, include_sensitive=True) for u in db.get_all_users()],
+        "pedidos": db.get_all_orders(),
+        "trazabilidad": db.get_traces(),
+        "settings": db.get_settings(),
     }
+    return record_http_json(response, 200, request.method, request.url.path, payload)
+
+
+@app.put("/api/admin/settings")
+def update_settings(
+    payload: AdminSettingsRequest,
+    request: Request,
+    response: Response,
+    x_session_token: Optional[str] = Header(default=None),
+    x_lab_version: Optional[str] = Header(default=None),
+) -> Any:
+    ctx = get_active_session_context(request, response, x_session_token, x_lab_version)
+    if ctx["user"]["role"] != "admin":
+        return record_http_json(response, 403, request.method, request.url.path, {"error": "Solo el administrador puede cambiar parámetros"})
+
+    updated = db.update_settings(
+        session_timeout_seconds=payload.session_timeout_seconds,
+        max_failed_attempts=payload.max_failed_attempts,
+    )
+    write_trace(ctx["version"], ctx["user"]["username"], "admin", "UPDATE_SETTINGS", json.dumps(updated))
+    return record_http_json(response, 200, request.method, request.url.path, {"settings": updated})
+
+
+@app.post("/api/admin/synthetic-data")
+def synthetic_data(
+    payload: SyntheticDataRequest,
+    request: Request,
+    response: Response,
+    x_session_token: Optional[str] = Header(default=None),
+    x_lab_version: Optional[str] = Header(default=None),
+) -> Any:
+    ctx = get_active_session_context(request, response, x_session_token, x_lab_version)
+    if ctx["user"]["role"] != "admin":
+        return record_http_json(response, 403, request.method, request.url.path, {"error": "Solo el administrador puede generar datos sintéticos"})
+
+    malformed = payload.calidad == "mal_creados"
+    extra_users = 0
+    for idx in range(payload.cantidad_usuarios_extra):
+        db.create_synthetic_user(idx=idx, malformed=malformed)
+        extra_users += 1
+
+    all_users = db.get_all_users()
+    pool = [u for u in all_users if u["role"] == "cliente"] or all_users
+    created_orders = 0
+    for i in range(payload.cantidad_pedidos):
+        owner = pool[i % len(pool)]
+        if malformed:
+            titulo = "" if i % 2 == 0 else f"Pedido Inválido #{i + 1}"
+            importe = -round(random.uniform(5.0, 250.0), 2)
+        else:
+            titulo = f"Pedido Sintético #{i + 1}"
+            importe = round(random.uniform(20.0, 450.0), 2)
+        db.create_order(owner_id=int(owner["id"]), titulo=titulo, importe=importe, estado="En proceso")
+        created_orders += 1
+
+    write_trace(
+        ctx["version"],
+        ctx["user"]["username"],
+        "admin",
+        "SYNTHETIC_DATA",
+        f"calidad={payload.calidad}, usuarios={extra_users}, pedidos={created_orders}",
+    )
+    return record_http_json(
+        response,
+        200,
+        request.method,
+        request.url.path,
+        {"created_users": extra_users, "created_orders": created_orders, "calidad": payload.calidad},
+    )
+
+
+@app.post("/api/admin/reset")
+def reset_data(
+    request: Request,
+    response: Response,
+    x_session_token: Optional[str] = Header(default=None),
+    x_lab_version: Optional[str] = Header(default=None),
+) -> Any:
+    ctx = get_active_session_context(request, response, x_session_token, x_lab_version)
+    if ctx["user"]["role"] != "admin":
+        return record_http_json(response, 403, request.method, request.url.path, {"error": "Solo el administrador puede reiniciar los datos"})
+
+    db.reset_all_data(seed_users=50)
+    write_trace(ctx["version"], ctx["user"]["username"], "admin", "RESET_DATA", "Datos reiniciados a 50 usuarios")
+    return record_http_json(response, 200, request.method, request.url.path, {"message": "Datos reiniciados correctamente"})
+
+
+@app.get("/api/admin/export")
+def export_data(
+    request: Request,
+    response: Response,
+    x_session_token: Optional[str] = Header(default=None),
+    x_lab_version: Optional[str] = Header(default=None),
+) -> Any:
+    ctx = get_active_session_context(request, response, x_session_token, x_lab_version)
+    if ctx["user"]["role"] != "admin":
+        return record_http_json(response, 403, request.method, request.url.path, {"error": "Solo el administrador puede guardar/exportar los datos"})
+
+    snapshot = db.export_snapshot()
+    write_trace(ctx["version"], ctx["user"]["username"], "admin", "EXPORT_DATA", "Fichero/snapshot de datos generado")
+    return record_http_json(response, 200, request.method, request.url.path, {"snapshot": snapshot})
+
+
+@app.post("/api/admin/import")
+def import_data(
+    payload: ImportSnapshotRequest,
+    request: Request,
+    response: Response,
+    x_session_token: Optional[str] = Header(default=None),
+    x_lab_version: Optional[str] = Header(default=None),
+) -> Any:
+    ctx = get_active_session_context(request, response, x_session_token, x_lab_version)
+    if ctx["user"]["role"] != "admin":
+        return record_http_json(response, 403, request.method, request.url.path, {"error": "Solo el administrador puede cargar datos"})
+
+    db.import_snapshot(payload.snapshot)
+    write_trace(ctx["version"], ctx["user"]["username"], "admin", "IMPORT_DATA", "Datos cargados desde fichero")
+    return record_http_json(response, 200, request.method, request.url.path, {"message": "Datos cargados correctamente"})
