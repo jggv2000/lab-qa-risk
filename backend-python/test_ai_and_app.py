@@ -1,4 +1,5 @@
 import json
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,6 +12,7 @@ from app_service import app
 client = TestClient(app)
 
 RESULTS_FILE = Path(__file__).resolve().parent / "qa_test_results.json"
+LAB_VERSION = os.getenv("LAB_VERSION", "dev")
 
 DNI_NIE_STRUCT_RE = re.compile(
     r"(?<![A-Za-z0-9])(?:[XYZ]\d{7}|\d{8})[A-HJ-NP-TV-Z](?![A-Za-z0-9])",
@@ -24,44 +26,40 @@ PHONE_STRUCT_RE = re.compile(
 )
 
 
-def detect_pii_structural(text: str) -> dict[str, list[str]]:
+def detect_pii_structural(text: str) -> list[str]:
     """Detecta PII por estructura aunque no aparezcan las palabras DNI, teléfono o email."""
-    base = detect_pii_findings(text) or {}
+    if not text:
+        return []
 
-    dni_nie = set(base.get("dni_nie_like") or [])
-    dni_nie.update(m.group(0).upper() for m in DNI_NIE_STRUCT_RE.finditer(text))
+    findings: set[str] = set(detect_pii_findings(text) or [])
 
-    emails = set(base.get("email_like") or [])
-    emails.update(m.group(0) for m in EMAIL_STRUCT_RE.finditer(text))
+    if DNI_NIE_STRUCT_RE.search(text):
+        findings.add("dni_nie_like")
 
-    phones = set(base.get("phone_like") or [])
-    for m in PHONE_STRUCT_RE.finditer(text):
-        candidate = m.group(0).strip()
+    if EMAIL_STRUCT_RE.search(text):
+        findings.add("email_like")
+
+    for match in PHONE_STRUCT_RE.finditer(text):
+        candidate = match.group(0).strip()
         digits_only = re.sub(r"\D", "", candidate)
-        # Evita confundir un DNI/NIE de 8 dígitos suelto o códigos cortos con teléfonos
         if 9 <= len(digits_only) <= 15 and not DNI_NIE_STRUCT_RE.fullmatch(candidate):
-            phones.add(candidate)
+            findings.add("phone_like")
+            break
 
-    result: dict[str, list[str]] = dict(base)
-    if dni_nie:
-        result["dni_nie_like"] = sorted(dni_nie)
-    if phones:
-        result["phone_like"] = sorted(phones)
-    if emails:
-        result["email_like"] = sorted(emails)
-    return result
+    return sorted(findings)
 
 
 def _append_result(entry: dict) -> None:
     history: list[dict] = []
     if RESULTS_FILE.exists():
         try:
-            history = json.loads(RESULTS_FILE.read_text(encoding="utf-8"))
-            if not isinstance(history, list):
-                history = []
+            loaded = json.loads(RESULTS_FILE.read_text(encoding="utf-8"))
+            if isinstance(loaded, list):
+                history = loaded
         except json.JSONDecodeError:
             history = []
 
+    entry.setdefault("lab_version", LAB_VERSION)
     entry["timestamp_utc"] = datetime.now(timezone.utc).isoformat()
     history.append(entry)
     RESULTS_FILE.write_text(
