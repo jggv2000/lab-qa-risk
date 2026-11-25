@@ -1,132 +1,96 @@
-import json
-from datetime import datetime, timezone
-from pathlib import Path
+from __future__ import annotations
 
-from fastapi.testclient import TestClient
+import re
+from typing import Any
 
-from ai_risk_advisor import detect_pii_findings, evaluate_order_risk
-from app_service import app
-
-client = TestClient(app)
-RESULTS_FILE = Path(__file__).resolve().parent / "qa_test_results.json"
-
-
-def _save_run_record(record: dict) -> None:
-    history: list[dict] = []
-    if RESULTS_FILE.exists():
-        try:
-            loaded = json.loads(RESULTS_FILE.read_text(encoding="utf-8"))
-            if isinstance(loaded, list):
-                history = loaded
-        except json.JSONDecodeError:
-            history = []
-
-    record["timestamp_utc"] = datetime.now(timezone.utc).isoformat()
-    history.append(record)
-    RESULTS_FILE.write_text(
-        json.dumps(history, indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
+# Detección estructural de datos personales (PII) sin depender de palabras clave
+DNI_NIE_STRUCT_RE = re.compile(
+    r"(?<![A-Za-z0-9])(?:[XYZ]\d{7}|\d{8})[A-HJ-NP-TV-Z](?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
+EMAIL_STRUCT_RE = re.compile(
+    r"(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}(?![A-Za-z0-9._%+-])"
+)
+PHONE_STRUCT_RE = re.compile(
+    r"(?<!\w)(?:\+\d{1,3}[\s.-]?)?(?:\(?\d{2,4}\)?[\s.-]?)?\d[\d\s.-]{6,13}\d(?!\w)"
+)
 
 
-def pytest_runtest_makereport(item, call):
-    if call.when == "call":
-        _save_run_record(
-            {
-                "test_name": item.name,
-                "status": "PASSED" if call.excinfo is None else "FAILED",
-                "duration_sec": round(call.duration, 4),
-                "error": str(call.excinfo.value) if call.excinfo is not None else None,
-            }
-        )
+def detect_pii_findings(text: str | None) -> list[str]:
+    """Detecta patrones estructurales de PII (DNI/NIE, teléfono, email) en un texto."""
+    if not text:
+        return []
+
+    findings: set[str] = set()
+
+    if DNI_NIE_STRUCT_RE.search(text):
+        findings.add("dni_nie_like")
+
+    if EMAIL_STRUCT_RE.search(text):
+        findings.add("email_like")
+
+    for match in PHONE_STRUCT_RE.finditer(text):
+        candidate = match.group(0).strip()
+        digits_only = re.sub(r"\D", "", candidate)
+        if 9 <= len(digits_only) <= 15 and not DNI_NIE_STRUCT_RE.fullmatch(candidate):
+            findings.add("phone_like")
+            break
+
+    return sorted(findings)
 
 
-def test_detect_pii_and_gdpr_alert():
-    # Texto sin las palabras "DNI", "teléfono" ni "email": valida detección por estructura
-    raw_text = "Contacto directo: 12345678A, +34 612 345 678, ana@ejemplo.com"
-    findings = detect_pii_findings(raw_text)
-    assert "dni_nie_like" in findings
-    assert "phone_like" in findings
-    assert "email_like" in findings
+def evaluate_order_risk(
+    amount: float,
+    discount_pct: float = 0.0,
+    marketing_consent: int | bool = 0,
+    notes: str | None = None,
+    customer_email: str | None = None,
+) -> dict[str, Any]:
+    """Evalúa el nivel de riesgo y alerta RGPD/PII de un pedido."""
+    pii_sources = " ".join(part for part in (notes, customer_email) if part)
+    pii_findings = detect_pii_findings(pii_sources)
+    has_consent = bool(marketing_consent)
+    has_pii = len(pii_findings) > 0
 
-    res = evaluate_order_risk(
-        amount=1200.0,
-        discount_pct=10.0,
-        marketing_consent=0,
-        notes="Llamar al 612345678",
-    )
-    assert res["gdpr_alert"] is True
-    assert res["risk_level"] in ("HIGH", "CRITICAL")
+    gdpr_alert = has_pii and not has_consent
 
-    _save_run_record(
-        {
-            "test_name": "test_detect_pii_and_gdpr_alert",
-            "event": "pii_and_risk_snapshot",
-            "raw_text": raw_text,
-            "findings": findings,
-            "risk_level": res["risk_level"],
-            "gdpr_alert": res["gdpr_alert"],
-        }
-    )
+    risk_score = 0
+    reasons: list[str] = []
 
+    if amount >= 1000.0:
+        risk_score += 2
+        reasons.append("high_amount")
+    elif amount >= 500.0:
+        risk_score += 1
+        reasons.append("medium_amount")
 
-def test_low_risk_order_calculation():
-    res = client.post(
-        "/orders",
-        headers={"X-User-Email": "cliente1@ejemplo.com"},
-        json={
-            "customer_email": "cliente1@ejemplo.com",
-            "amount": 200.0,
-            "discount_pct": 10.0,
-            "marketing_consent": 1,
-            "notes": "Pedido estándar sin datos personales",
-        },
-    )
-    assert res.status_code == 201
-    body = res.json()
-    assert body["order"]["final_amount"] == 180.0
-    assert body["risk_assessment"]["risk_level"] == "LOW"
-    assert body["risk_assessment"]["gdpr_alert"] is False
+    if discount_pct >= 25.0:
+        risk_score += 2
+        reasons.append("high_discount")
+    elif discount_pct >= 15.0:
+        risk_score += 1
+        reasons.append("moderate_discount")
 
+    if gdpr_alert:
+        risk_score += 3
+        reasons.append("pii_without_marketing_consent")
+    elif has_pii:
+        risk_score += 1
+        reasons.append("pii_detected_with_consent")
 
-def test_rbac_viewer_cannot_create_and_customer_isolated():
-    forbidden = client.post(
-        "/orders",
-        headers={"X-User-Email": "viewer@ejemplo.com"},
-        json={
-            "customer_email": "cliente1@ejemplo.com",
-            "amount": 100.0,
-            "discount_pct": 0.0,
-            "marketing_consent": 0,
-            "notes": "Intento de escritura con viewer",
-        },
-    )
-    assert forbidden.status_code == 403
+    if risk_score >= 4:
+        risk_level = "CRITICAL"
+    elif risk_score >= 2:
+        risk_level = "HIGH"
+    elif risk_score == 1:
+        risk_level = "MEDIUM"
+    else:
+        risk_level = "LOW"
 
-    cross_customer = client.post(
-        "/orders",
-        headers={"X-User-Email": "cliente1@ejemplo.com"},
-        json={
-            "customer_email": "cliente2@ejemplo.com",
-            "amount": 100.0,
-            "discount_pct": 0.0,
-            "marketing_consent": 0,
-            "notes": "Intento de suplantación de cliente2",
-        },
-    )
-    assert cross_customer.status_code == 403
-
-
-def test_invalid_amount_rejected_by_validation():
-    bad = client.post(
-        "/orders",
-        headers={"X-User-Email": "cliente1@ejemplo.com"},
-        json={
-            "customer_email": "cliente1@ejemplo.com",
-            "amount": -50.0,
-            "discount_pct": 0.0,
-            "marketing_consent": 0,
-            "notes": "Importe negativo",
-        },
-    )
-    assert bad.status_code == 422
+    return {
+        "risk_level": risk_level,
+        "risk_score": risk_score,
+        "gdpr_alert": gdpr_alert,
+        "pii_findings": pii_findings,
+        "reasons": reasons,
+    }
