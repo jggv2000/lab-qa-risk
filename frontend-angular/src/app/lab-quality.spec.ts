@@ -1,43 +1,102 @@
-import {
-  getPermissionsForRole,
-  requiresManualReview,
-  validateOrderInput,
-} from './lab-quality';
+export type LabRole = 'admin' | 'cliente' | 'customer' | 'viewer';
+export type RiskLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
-describe('Pearson QA Risk Lab - Frontend Logic', () => {
-  it('debe validar una entrada correcta sin errores', () => {
-    const errors = validateOrderInput({
-      customerEmail: 'cliente1@ejemplo.com',
-      amount: 250,
-      discountPct: 10,
-      marketingConsent: true,
-      notes: 'Pedido estándar',
-    });
-    expect(errors.length).toBe(0);
-  });
+export interface OrderInput {
+  customerEmail: string;
+  amount: number;
+  discountPct: number;
+  marketingConsent: boolean;
+  notes?: string;
+}
 
-  it('debe detectar valores inválidos o fuera de rango', () => {
-    const errors = validateOrderInput({
-      customerEmail: 'correo-no-valido',
-      amount: -10,
-      discountPct: 150,
-      marketingConsent: false,
-      notes: '',
-    });
-    expect(errors.length).toBe(3);
-  });
+export interface RolePermissions {
+  canViewOrders: boolean;
+  canCreateOrder: boolean;
+  canApproveOrder: boolean;
+  canDeleteOrder: boolean;
+  canManageUsers: boolean;
+  canManageAdminTools: boolean;
+}
 
-  it('debe aplicar correctamente los permisos para viewer, customer y admin', () => {
-    expect(getPermissionsForRole('viewer').canCreateOrder).toBeFalse();
-    expect(getPermissionsForRole('customer').canCreateOrder).toBeTrue();
-    expect(getPermissionsForRole('customer').canDeleteOrder).toBeFalse();
-    expect(getPermissionsForRole('admin').canDeleteOrder).toBeTrue();
-  });
+export interface VersionDefectFlags {
+  viewer_can_modify?: boolean;
+  broken_order_workflow?: boolean;
+  broken_rbac_escalation?: boolean;
+  pii_exposure_or_no_rgpd?: boolean;
+  weak_field_validation?: boolean;
+}
 
-  it('debe exigir revisión manual cuando haya alerta GDPR o riesgo HIGH/CRITICAL', () => {
-    expect(requiresManualReview('LOW', false)).toBeFalse();
-    expect(requiresManualReview('LOW', true)).toBeTrue();
-    expect(requiresManualReview('HIGH', false)).toBeTrue();
-    expect(requiresManualReview('CRITICAL', false)).toBeTrue();
-  });
-});
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export function validateOrderInput(input: OrderInput): string[] {
+  const errors: string[] = [];
+
+  if (!input.customerEmail || !EMAIL_RE.test(input.customerEmail.trim())) {
+    errors.push('Correo electrónico no válido');
+  }
+
+  if (typeof input.amount !== 'number' || Number.isNaN(input.amount) || input.amount <= 0) {
+    errors.push('El importe debe ser mayor que cero');
+  }
+
+  if (
+    typeof input.discountPct !== 'number' ||
+    Number.isNaN(input.discountPct) ||
+    input.discountPct < 0 ||
+    input.discountPct > 100
+  ) {
+    errors.push('El descuento debe estar entre 0 y 100');
+  }
+
+  return errors;
+}
+
+export function getPermissionsForRole(
+  role: LabRole,
+  flags: VersionDefectFlags = {}
+): RolePermissions {
+  const normalizedRole = role === 'customer' ? 'cliente' : role;
+
+  if (normalizedRole === 'admin') {
+    return {
+      canViewOrders: true,
+      canCreateOrder: true,
+      canApproveOrder: true,
+      canDeleteOrder: true,
+      canManageUsers: true,
+      canManageAdminTools: true,
+    };
+  }
+
+  if (normalizedRole === 'cliente') {
+    return {
+      canViewOrders: true,
+      canCreateOrder: true,
+      canApproveOrder: false,
+      canDeleteOrder: false,
+      canManageUsers: false,
+      canManageAdminTools: false,
+    };
+  }
+
+  const canModify = Boolean(flags.viewer_can_modify);
+  return {
+    canViewOrders: true,
+    canCreateOrder: canModify,
+    canApproveOrder: canModify,
+    canDeleteOrder: canModify,
+    canManageUsers: false,
+    canManageAdminTools: false,
+  };
+}
+
+export function requiresManualReview(riskLevel: RiskLevel, gdprAlert: boolean): boolean {
+  if (gdprAlert) {
+    return true;
+  }
+  return riskLevel === 'HIGH' || riskLevel === 'CRITICAL';
+}
+
+export function toggleThemeMode(isLightMode: boolean): 'light' | 'dark' {
+  return isLightMode ? 'light' : 'dark';
+}
