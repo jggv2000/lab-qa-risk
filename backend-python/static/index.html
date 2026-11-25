@@ -1,679 +1,818 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Laboratorio QA, Seguridad y Riesgo</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Risk-Based Testing Lab (v3.1 - v3.5)</title>
   <style>
     :root {
       --bg: #0f172a;
-      --card: #1e293b;
-      --muted: #94a3b8;
+      --panel: #1e293b;
+      --panel-2: #0b1120;
       --text: #f8fafc;
+      --muted: #94a3b8;
       --accent: #38bdf8;
       --ok: #22c55e;
       --warn: #f59e0b;
       --err: #ef4444;
       --border: #334155;
     }
-    body {
-      margin: 0;
-      font-family: Inter, system-ui, -apple-system, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      line-height: 1.45;
+    body.light-mode {
+      --bg: #f1f5f9;
+      --panel: #ffffff;
+      --panel-2: #e2e8f0;
+      --text: #0f172a;
+      --muted: #475569;
+      --accent: #0284c7;
+      --ok: #16a34a;
+      --warn: #d97706;
+      --err: #dc2626;
+      --border: #cbd5e1;
     }
-    .wrap {
-      max-width: 1180px;
-      margin: 24px auto;
-      padding: 0 16px 48px;
+    * { box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif; }
+    body { margin: 0; background: var(--bg); color: var(--text); }
+    header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 12px 20px; background: var(--panel-2); border-bottom: 1px solid var(--border);
+      gap: 12px; flex-wrap: wrap;
     }
-    .top-bar {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: space-between;
-      align-items: center;
-      gap: 12px;
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 14px 18px;
-      margin-bottom: 16px;
-    }
+    .header-left { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+    .header-right { display: flex; align-items: center; gap: 10px; font-size: 0.92rem; flex-wrap: wrap; }
     .badge {
-      display: inline-block;
-      padding: 4px 10px;
-      border-radius: 999px;
-      font-size: 12px;
-      font-weight: 700;
+      padding: 4px 10px; border-radius: 999px; font-size: 0.8rem; font-weight: 600;
+      background: #172554; color: #93c5fd; border: 1px solid #1d4ed8;
     }
-    .badge-buggy {
-      background: rgba(245, 158, 11, 0.2);
-      color: #fcd34d;
-      border: 1px solid var(--warn);
+    body.light-mode .badge {
+      background: #e0f2fe; color: #0369a1; border: 1px solid #7dd3fc;
     }
-    .badge-clean {
-      background: rgba(34, 197, 94, 0.2);
-      color: #86efac;
-      border: 1px solid var(--ok);
+    nav.tabs {
+      display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 20px;
+      background: var(--panel); border-bottom: 1px solid var(--border);
     }
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
-      gap: 16px;
-      margin-bottom: 16px;
+    button.tab-btn {
+      padding: 8px 14px; border-radius: 6px; border: 1px solid var(--border);
+      background: var(--panel-2); color: var(--text); cursor: pointer; font-weight: 600;
     }
+    button.tab-btn.active { background: var(--accent); color: #082f49; border-color: var(--accent); }
+    body.light-mode button.tab-btn.active { color: #ffffff; }
+    button.tab-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+    main { padding: 20px; max-width: 1280px; margin: 0 auto; }
     .card {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 16px;
+      background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+      padding: 18px; margin-bottom: 16px;
     }
-    .card h2, .card h3 {
-      margin: 0 0 8px;
-      font-size: 16px;
-    }
-    .muted {
-      color: var(--muted);
-      font-size: 13px;
-    }
-    label {
-      display: block;
-      font-size: 12px;
-      color: var(--muted);
-      margin-top: 10px;
-      margin-bottom: 4px;
-    }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+    .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+    label { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 4px; }
     input, select, textarea {
-      width: 100%;
-      box-sizing: border-box;
-      background: #0f172a;
-      color: var(--text);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 8px 10px;
-      font-size: 14px;
+      width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border);
+      background: var(--panel-2); color: var(--text);
     }
-    button {
-      margin-top: 10px;
-      background: var(--accent);
-      color: #082f49;
-      border: none;
-      border-radius: 8px;
-      padding: 8px 12px;
-      font-weight: 700;
-      cursor: pointer;
-      font-size: 13px;
+    button.btn {
+      padding: 8px 14px; border-radius: 6px; border: none; cursor: pointer;
+      background: var(--accent); color: #082f49; font-weight: 700;
     }
-    button.secondary {
-      background: #334155;
-      color: var(--text);
+    body.light-mode button.btn { color: #ffffff; }
+    button.btn.secondary { background: #334155; color: var(--text); }
+    body.light-mode button.btn.secondary { background: #cbd5e1; color: #0f172a; }
+    button.btn.danger { background: var(--err); color: #fff; }
+    button.btn.ok { background: var(--ok); color: #052e16; }
+    body.light-mode button.btn.ok { color: #ffffff; }
+    button.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.86rem; margin-top: 10px; }
+    th, td { border: 1px solid var(--border); padding: 8px; text-align: left; }
+    th { background: var(--panel-2); color: var(--muted); }
+    .rgpd-box {
+      background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
+      padding: 12px; margin: 12px 0; font-size: 0.85rem; line-height: 1.45;
     }
-    button.ok {
-      background: var(--ok);
-      color: #052e16;
-    }
-    button.danger {
-      background: var(--err);
-      color: #fff;
-    }
-    button:disabled {
-      opacity: 0.45;
-      cursor: not-allowed;
-    }
-    .row-btns {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 10px;
-      font-size: 13px;
-    }
-    th, td {
-      border-bottom: 1px solid var(--border);
-      padding: 8px 6px;
-      text-align: left;
-      vertical-align: top;
-    }
-    th {
-      color: var(--muted);
-      cursor: pointer;
-      user-select: none;
-    }
+    .check-row { display: flex; align-items: flex-start; gap: 8px; margin-top: 8px; }
+    .check-row input { width: auto; margin-top: 3px; }
     pre {
-      background: #0b1120;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 12px;
-      overflow: auto;
-      max-height: 280px;
-      font-size: 12px;
-      margin: 8px 0 0;
+      background: var(--panel-2); padding: 12px; border-radius: 8px;
+      overflow-x: auto; border: 1px solid var(--border); font-size: 0.82rem;
     }
-    .locked {
-      opacity: 0.55;
-    }
+    .msg { padding: 10px 12px; border-radius: 6px; margin-bottom: 12px; font-size: 0.9rem; }
+    .msg.info { background: #0c4a6e; border: 1px solid #0284c7; color: #f0f9ff; }
+    .msg.err { background: #450a0a; border: 1px solid #dc2626; color: #fef2f2; }
+    .hidden { display: none !important; }
+    .cosmetic-skew { transform: rotate(-0.6deg); border-style: dashed !important; }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="top-bar">
-      <div>
-        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-          <strong>Laboratorio QA, Seguridad y Riesgo</strong>
-          <span id="modeBadge" class="badge badge-buggy">PRÁCTICAS (BUGGY)</span>
-          <span id="cycleBadge" class="badge badge-buggy">CICLO: ALL_ERRORS (SIN CONTROLES)</span>
-        </div>
-        <div id="sessionInfo" class="muted" style="margin-top:4px;">Sin sesión activa · Token: ninguno</div>
-      </div>
-      <div class="row-btns" style="align-items:center;">
-        <div>
-          <label for="cycleSelect" style="margin:0 0 2px;">Ciclo de pruebas</label>
-          <select id="cycleSelect" onchange="changeCycle()" style="width:auto;">
-            <option value="all_errors">1. all_errors (todos los errores / sin controles)</option>
-            <option value="half_errors">2. half_errors (controles parciales)</option>
-            <option value="all_clean">3. all_clean (con controles)</option>
-          </select>
-        </div>
-        <button class="secondary" onclick="switchToBuggy()">Volver a BUGGY</button>
-        <button class="danger" onclick="resetLab()">Reiniciar datos (admin)</button>
-      </div>
-    </div>
-
-    <div class="card" style="margin-bottom:16px;">
-      <h2>Desbloqueo de Modo Solucionado (CLEAN)</h2>
-      <p class="muted">Por defecto el entorno inicia en <strong>BUGGY</strong>. Introduce usuario y contraseña para activar <strong>CLEAN</strong>.</p>
-      <div class="grid" style="margin-bottom:0;">
-        <div>
-          <label for="cleanUser">Usuario CLEAN</label>
-          <input id="cleanUser" type="text" value="instructor@lab.local" />
-        </div>
-        <div>
-          <label for="cleanPass">Contraseña CLEAN</label>
-          <input id="cleanPass" type="password" value="CleanMode2026!" />
-        </div>
-        <div style="display:flex;align-items:flex-end;">
-          <button class="ok" onclick="unlockClean()">Activar modo CLEAN</button>
-        </div>
-      </div>
-    </div>
-
-    <div class="grid">
-      <div class="card">
-        <h3>1. Sesión (Login / Logout)</h3>
-        <label for="loginEmail">Correo de usuario</label>
-        <input id="loginEmail" type="email" value="admin@ejemplo.com" />
-        <label for="loginPass">Contraseña</label>
-        <input id="loginPass" type="password" value="admin123" />
-        <div class="row-btns">
-          <button onclick="doLogin()">Iniciar sesión</button>
-          <button id="btnLogout" class="secondary" onclick="doLogout()" disabled>Cerrar sesión</button>
-        </div>
-        <p class="muted" style="margin-top:10px;">
-          Usuarios: admin@ejemplo.com / cliente1@ejemplo.com / cliente2@ejemplo.com / viewer@ejemplo.com
-        </p>
-      </div>
-
-      <div id="secCreate" class="card locked">
-        <h3>2. Crear Pedido / Evaluar Riesgo y RGPD</h3>
-        <div class="row-btns">
-          <button class="ok" onclick="fillGoodData()">Cargar datos buenos</button>
-          <button class="danger" onclick="fillBadData()">Cargar datos malos</button>
-        </div>
-        <label for="custEmail">Correo del cliente</label>
-        <input id="custEmail" type="text" value="cliente1@ejemplo.com" />
-        <div class="grid" style="grid-template-columns:1fr 1fr;gap:8px;margin:0;">
-          <div>
-            <label for="amount">Importe (€)</label>
-            <input id="amount" type="number" step="0.01" value="200" />
-          </div>
-          <div>
-            <label for="discount">Descuento (%)</label>
-            <input id="discount" type="number" step="0.01" value="25" />
-          </div>
-        </div>
-        <label for="consent">Consentimiento marketing (0 = No, 1 = Sí; o inválido en pruebas)</label>
-        <input id="consent" type="text" value="0" />
-        <label for="notes">Notas (notes)</label>
-        <input id="notes" type="text" value="" />
-        <div class="row-btns">
-          <button class="secondary" onclick="checkRisk()">Evaluar Riesgo/GDPR</button>
-          <button onclick="createOrder()">Crear pedido</button>
-        </div>
-      </div>
-    </div>
-
-    <div id="secOrders" class="card locked" style="margin-bottom:16px;">
-      <h3>3. Pedidos (ID_PED)</h3>
-      <div style="overflow-x:auto;">
-        <table>
-          <thead>
-            <tr>
-              <th onclick="sortOrders('order_code')">ID_PED</th>
-              <th onclick="sortOrders('customer_email')">Cliente</th>
-              <th onclick="sortOrders('amount')">Importe</th>
-              <th onclick="sortOrders('discount_pct')">Desc.</th>
-              <th onclick="sortOrders('final_amount')">Final</th>
-              <th onclick="sortOrders('marketing_consent')">RGPD</th>
-              <th onclick="sortOrders('status')">Estado</th>
-              <th onclick="sortOrders('notes')">Notas</th>
-              <th>Acciones</th>
-            </tr>
-          </thead>
-          <tbody id="ordersBody"></tbody>
-        </table>
-      </div>
-    </div>
-
-    <div id="secLogs" class="card locked" style="margin-bottom:16px;">
-      <h3>4. Trazabilidad (ID_TRA)</h3>
-      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:8px;">
-        <div>
-          <label for="logLimit">Límite de registros</label>
-          <select id="logLimit" onchange="loadLogs()">
-            <option value="25">25</option>
-            <option value="50">50</option>
-            <option value="100">100</option>
-          </select>
-        </div>
-        <div>
-          <label for="actorFilter">Filtrar por usuario</label>
-          <input id="actorFilter" type="text" placeholder="ej. cliente1@ejemplo.com" oninput="loadLogs()" />
-        </div>
-      </div>
-      <div style="overflow-x:auto;">
-        <table>
-          <thead>
-            <tr>
-              <th onclick="sortLogs('trace_code')">ID_TRA</th>
-              <th onclick="sortLogs('created_at')">Fecha/Hora</th>
-              <th onclick="sortLogs('test_cycle')">Ciclo</th>
-              <th onclick="sortLogs('lab_mode')">Modo</th>
-              <th onclick="sortLogs('actor_email')">Usuario</th>
-              <th onclick="sortLogs('role')">Rol</th>
-              <th onclick="sortLogs('action')">Acción</th>
-              <th onclick="sortLogs('status_code')">HTTP</th>
-              <th onclick="sortLogs('detail')">Detalle</th>
-            </tr>
-          </thead>
-          <tbody id="logsBody"></tbody>
-        </table>
-      </div>
-    </div>
-
-    <div class="grid">
-      <div id="secDb" class="card locked">
-        <h3>5. Visor Controlado de Base de Datos (SQLite)</h3>
-        <button class="secondary" onclick="inspectDb()">Inspeccionar BD</button>
-        <pre id="dbOutput">{}</pre>
-      </div>
-
-      <div id="secSynth" class="card locked">
-        <h3>6. Generador de Datos Sintéticos</h3>
-        <label for="synthProfile">Perfil</label>
-        <select id="synthProfile">
-          <option value="mixto">mixto</option>
-          <option value="normal">normal</option>
-          <option value="extremos">extremos</option>
-          <option value="rgpd">rgpd</option>
+  <header id="app-header">
+    <div class="header-left">
+      <strong id="brand-title">Risk-Based Testing Lab</strong>
+      <label style="margin:0;">
+        Versión:
+        <select id="version-select" style="width:auto; display:inline-block; padding:4px 8px;">
+          <option value="v3.5">v3.5 (0 errores)</option>
+          <option value="v3.4">v3.4 (5 bajos)</option>
+          <option value="v3.3">v3.3 (2 crit, 1 alto, 8 bajos)</option>
+          <option value="v3.2">v3.2 (5 crit, 5 alto, 5 med, 5 bajos)</option>
+          <option value="v3.1" selected>v3.1 (15 crit, 15 alto, 15 med, 15 bajos)</option>
         </select>
-        <label for="synthCount">Cantidad (1-20)</label>
-        <input id="synthCount" type="number" min="1" max="20" value="5" />
-        <button onclick="generateSynthetic()">Generar lote sintético</button>
-      </div>
+      </label>
+      <span class="badge" id="version-summary">Cargando perfil...</span>
     </div>
+    <div class="header-right">
+      <button class="btn secondary" id="btn-theme-toggle" type="button">Modo claro</button>
+      <span id="session-timer-badge" class="badge">Sesión: --</span>
+      <span id="current-user-label">Usuario: Invitado</span>
+    </div>
+  </header>
 
-    <div class="card">
-      <h3>Última respuesta de la API (HTTP + JSON)</h3>
-      <pre id="apiOutput">Listo.</pre>
-    </div>
-  </div>
+  <nav class="tabs" id="main-tabs">
+    <button class="tab-btn active" data-tab="login">Login</button>
+    <button class="tab-btn" data-tab="profile">Datos usuario</button>
+    <button class="tab-btn" data-tab="orders">Pedidos</button>
+    <button class="tab-btn" data-tab="traceability">Trazabilidad</button>
+    <button class="tab-btn" data-tab="last-api">Última respuesta de la API (HTTP + JSON)</button>
+    <button class="tab-btn hidden" data-tab="admin-db">Base de datos</button>
+    <button class="tab-btn hidden" data-tab="admin-synthetic">Datos sintéticos y gestión</button>
+  </nav>
+
+  <main>
+    <div id="global-alert" class="msg info hidden"></div>
+
+    <!-- 1. LOGIN -->
+    <section id="tab-login" class="card">
+      <h2 id="login-heading">Login</h2>
+      <div id="login-form-box">
+        <div class="grid-2">
+          <div>
+            <label for="login-user" id="login-user-label">Usuario</label>
+            <input id="login-user" type="text" placeholder="instructor@lab.local" value="instructor@lab.local" />
+          </div>
+          <div>
+            <label for="login-pass">Contraseña</label>
+            <input id="login-pass" type="password" placeholder="••••••••••••" value="CleanMode2026!" />
+          </div>
+        </div>
+        <div style="margin-top:12px;">
+          <button class="btn" id="btn-login">Iniciar sesión</button>
+        </div>
+      </div>
+
+      <div id="logged-in-box" class="hidden">
+        <p>Sesión activa como: <strong id="login-active-user"></strong> (<span id="login-active-role"></span>)</p>
+        <button class="btn danger" id="btn-logout">Cerrar sesión</button>
+      </div>
+    </section>
+
+    <!-- 2. DATOS USUARIO + RGPD -->
+    <section id="tab-profile" class="card hidden">
+      <h2 id="profile-heading">Datos usuario</h2>
+      <div class="grid-2">
+        <div>
+          <label for="prof-correo">Correo</label>
+          <input id="prof-correo" type="email" />
+        </div>
+        <div>
+          <label for="prof-ciudad">Ciudad</label>
+          <input id="prof-ciudad" type="text" />
+        </div>
+        <div>
+          <label for="prof-telefono">Teléfono</label>
+          <input id="prof-telefono" type="text" />
+        </div>
+      </div>
+
+      <div class="rgpd-box">
+        <strong>Política de Privacidad y Protección de Datos</strong>
+        <p style="margin:6px 0;">
+          Respetamos tu privacidad y tratamos tus datos personales conforme al Reglamento (UE) 2016/679 (RGPD).
+          Utilizaremos los datos proporcionados en este formulario únicamente para gestionar tus pedidos.
+        </p>
+        <p style="margin:6px 0;">
+          Puedes ejercer tus derechos de acceso, rectificación, supresión, limitación, portabilidad y oposición
+          escribiendo a [correo de contacto / DPO] o consultando nuestra [Política de Privacidad].
+        </p>
+        <div class="check-row">
+          <input type="checkbox" id="prof-rgpd" />
+          <label for="prof-rgpd" style="margin:0; color:var(--text);">
+            He leído y acepto el tratamiento de mis datos personales conforme a la Política de Privacidad
+          </label>
+        </div>
+      </div>
+
+      <div class="row">
+        <button class="btn" id="btn-save-profile">Guardar datos</button>
+        <button class="btn secondary" id="btn-perf-check">Probar respuesta (rendimiento)</button>
+      </div>
+
+      <div id="admin-users-section" class="hidden" style="margin-top:20px;">
+        <h3>Todos los usuarios (vista administrador)</h3>
+        <div id="admin-users-table"></div>
+      </div>
+    </section>
+
+    <!-- 3. PEDIDOS -->
+    <section id="tab-orders" class="card hidden">
+      <h2 id="orders-heading">Pedidos</h2>
+      <div id="create-order-box" class="grid-2" style="margin-bottom:14px;">
+        <div>
+          <label for="order-title">Concepto / Título del pedido</label>
+          <input id="order-title" type="text" placeholder="Pedido material de laboratorio" />
+        </div>
+        <div>
+          <label for="order-amount">Importe (€)</label>
+          <input id="order-amount" type="number" step="0.01" value="120.00" />
+        </div>
+        <div id="admin-order-owner-box" class="hidden">
+          <label for="order-owner-id">ID Cliente (opcional)</label>
+          <input id="order-owner-id" type="number" placeholder="ID usuario cliente" />
+        </div>
+        <div style="display:flex; align-items:flex-end;">
+          <button class="btn ok" id="btn-create-order">Pedido</button>
+        </div>
+      </div>
+
+      <div id="orders-table-container"></div>
+    </section>
+
+    <!-- 4. TRAZABILIDAD -->
+    <section id="tab-traceability" class="card hidden">
+      <div class="row" style="justify-content:space-between;">
+        <h2 style="margin:0;">Trazabilidad</h2>
+        <button class="btn secondary" id="btn-refresh-traces">Actualizar trazabilidad</button>
+      </div>
+      <div id="traceability-table-container"></div>
+    </section>
+
+    <!-- 5. ÚLTIMA RESPUESTA API -->
+    <section id="tab-last-api" class="card hidden">
+      <div class="row" style="justify-content:space-between;">
+        <h2 style="margin:0;">Última respuesta de la API (HTTP + JSON)</h2>
+        <button class="btn secondary" id="btn-refresh-last-api">Refrescar</button>
+      </div>
+      <pre id="last-api-output">Sin datos aún</pre>
+    </section>
+
+    <!-- 6. BASE DE DATOS TABULAR (ADMIN) -->
+    <section id="tab-admin-db" class="card hidden">
+      <h2>Base de datos en forma de tabla (Administrador)</h2>
+      <div class="row" style="margin-bottom:12px;">
+        <button class="btn secondary" data-dbtable="usuarios">Usuarios</button>
+        <button class="btn secondary" data-dbtable="pedidos">Pedidos</button>
+        <button class="btn secondary" data-dbtable="trazabilidad">Trazabilidad</button>
+      </div>
+      <div id="admin-db-grid"></div>
+    </section>
+
+    <!-- 7. SINTÉTICOS Y GESTIÓN DE DATOS (ADMIN) -->
+    <section id="tab-admin-synthetic" class="card hidden">
+      <h2>Generación sintética, parámetros y gestión de datos (Administrador)</h2>
+
+      <div class="grid-2" style="margin-bottom:18px;">
+        <div class="card" style="margin:0;">
+          <h3>Generar datos sintéticos</h3>
+          <label for="synth-orders">Cantidad de pedidos (proporcional a usuarios)</label>
+          <input id="synth-orders" type="number" min="1" max="500" value="25" />
+          <label for="synth-users" style="margin-top:8px;">Usuarios adicionales a crear</label>
+          <input id="synth-users" type="number" min="0" max="100" value="0" />
+          <label for="synth-quality" style="margin-top:8px;">Calidad de la data</label>
+          <select id="synth-quality">
+            <option value="bien_creados">Bien creados (válidos)</option>
+            <option value="mal_creados">Mal creados (inválidos / defectuosos)</option>
+          </select>
+          <button class="btn" id="btn-gen-synthetic" style="margin-top:12px;">Generar datos sintéticos</button>
+        </div>
+
+        <div class="card" style="margin:0;">
+          <h3>Parámetros de sesión y bloqueo</h3>
+          <label for="cfg-timeout">Caducidad sesión por inactividad (segundos)</label>
+          <input id="cfg-timeout" type="number" min="5" max="3600" value="60" />
+          <label for="cfg-attempts" style="margin-top:8px;">Máximo de intentos erróneos</label>
+          <input id="cfg-attempts" type="number" min="1" max="20" value="5" />
+          <button class="btn" id="btn-save-settings" style="margin-top:12px;">Guardar parámetros</button>
+        </div>
+      </div>
+
+      <div class="card" style="margin:0;">
+        <h3>Reinicio y persistencia de fichero (Solo administrador)</h3>
+        <div class="row">
+          <button class="btn danger" id="btn-reset-data">Reiniciar datos</button>
+          <button class="btn secondary" id="btn-export-data">Guardar fichero de datos (.json)</button>
+          <label class="btn secondary" style="margin:0; cursor:pointer;">
+            Cargar fichero de datos (.json)
+            <input id="file-import-data" type="file" accept=".json,application/json" style="display:none;" />
+          </label>
+        </div>
+      </div>
+    </section>
+  </main>
 
   <script>
-    let labMode = "buggy";
-    let testCycle = "all_errors";
-    let cleanToken = null;
-    let sessionToken = null;
-    let currentUser = null;
-    let ordersCache = [];
-    let logsCache = [];
-    let orderSortAsc = false;
-    let logSortAsc = false;
+    const state = {
+      token: null,
+      user: null,
+      version: "v3.1",
+      flags: {},
+      timeoutSec: 60,
+      lastActivity: Date.now(),
+      currentDbTable: "usuarios",
+    };
 
-    function headers() {
-      const h = {
-        "Content-Type": "application/json",
-        "X-Lab-Mode": labMode,
-        "X-Test-Cycle": testCycle,
-      };
-      if (currentUser && currentUser.email) h["X-User-Email"] = currentUser.email;
-      if (sessionToken) h["X-Session-Token"] = sessionToken;
-      if (cleanToken && labMode === "clean") h["X-Clean-Token"] = cleanToken;
+    const $ = (id) => document.getElementById(id);
+
+    function applyTheme(theme) {
+      const isLight = theme === "light";
+      document.body.classList.toggle("light-mode", isLight);
+      $("btn-theme-toggle").textContent = isLight ? "Modo oscuro" : "Modo claro";
+      try {
+        localStorage.setItem("lab_theme", theme);
+      } catch (_) {}
+    }
+
+    function initTheme() {
+      let saved = "dark";
+      try {
+        saved = localStorage.getItem("lab_theme") || "dark";
+      } catch (_) {}
+      applyTheme(saved);
+    }
+
+    function showAlert(text, isError = false) {
+      const el = $("global-alert");
+      el.textContent = text;
+      el.className = "msg " + (isError ? "err" : "info");
+      el.classList.remove("hidden");
+    }
+
+    function headers(extra = {}) {
+      const h = { "Content-Type": "application/json", "X-Lab-Version": state.version, ...extra };
+      if (state.token) h["X-Session-Token"] = state.token;
       return h;
     }
 
-    function showApi(status, data) {
-      document.getElementById("apiOutput").textContent =
-        "HTTP " + status + "\n" + JSON.stringify(data, null, 2);
+    async function api(path, opts = {}) {
+      const res = await fetch(path, {
+        ...opts,
+        headers: headers(opts.headers || {}),
+      });
+      let data = null;
+      try { data = await res.json(); } catch (_) { data = null; }
+      if (res.status === 401 && state.token) {
+        handleSessionExpired(data?.detail?.error || data?.error || "Sesión caducada");
+      }
+      await refreshLastApi();
+      return { ok: res.ok, status: res.status, data };
     }
 
-    function syncCycleBadge() {
-      const cBadge = document.getElementById("cycleBadge");
-      const labels = {
-        all_errors: { text: "CICLO: ALL_ERRORS (SIN CONTROLES)", cls: "badge badge-buggy" },
-        half_errors: { text: "CICLO: HALF_ERRORS (CONTROLES PARCIALES)", cls: "badge badge-buggy" },
-        all_clean: { text: "CICLO: ALL_CLEAN (CON CONTROLES)", cls: "badge badge-clean" },
-      };
-      const cfg = labels[testCycle] || labels.all_errors;
-      cBadge.textContent = cfg.text;
-      cBadge.className = cfg.cls;
+    function handleSessionExpired(msg) {
+      state.token = null;
+      state.user = null;
+      updateSessionUI();
+      applyRolePermissions();
+      switchTab("login");
+      showAlert(msg, true);
     }
 
-    function syncUiState() {
-      const badge = document.getElementById("modeBadge");
-      if (labMode === "clean") {
-        badge.textContent = "SOLUCIONADO (CLEAN)";
-        badge.className = "badge badge-clean";
+    async function refreshLastApi() {
+      try {
+        const r = await fetch("/api/last-response", { headers: { "X-Lab-Version": state.version } });
+        const d = await r.json();
+        $("last-api-output").textContent = JSON.stringify(d, null, 2);
+      } catch (_) {}
+    }
+
+    function applyVersionVisualFlags() {
+      const f = state.flags || {};
+      $("app-header").classList.toggle("cosmetic-skew", Boolean(f.cosmetic_bug));
+      if (f.spelling_typo) {
+        $("orders-heading").textContent = "Pedidos y solictudes";
+        $("btn-create-order").textContent = "Crear pedidoo";
       } else {
-        badge.textContent = "PRÁCTICAS (BUGGY)";
-        badge.className = "badge badge-buggy";
-      }
-      syncCycleBadge();
-
-      const logged = Boolean(currentUser);
-      document.getElementById("sessionInfo").textContent = logged
-        ? "Usuario: " + currentUser.email + " · Rol: " + currentUser.role + " · Token sesión: " + (sessionToken ? sessionToken.slice(0, 8) + "..." : "no")
-        : "Sin sesión activa · Token: ninguno";
-
-      document.getElementById("btnLogout").disabled = !logged;
-      ["secCreate", "secOrders", "secLogs", "secDb", "secSynth"].forEach((id) => {
-        const el = document.getElementById(id);
-        if (!el) return;
-        if (logged) el.classList.remove("locked");
-        else el.classList.add("locked");
-      });
-    }
-
-    async function changeCycle() {
-      testCycle = document.getElementById("cycleSelect").value;
-      syncUiState();
-      const res = await fetch("/cycle/set", {
-        method: "POST",
-        headers: headers(),
-        body: JSON.stringify({ cycle: testCycle }),
-      });
-      const data = await res.json();
-      showApi(res.status, data);
-      if (currentUser) {
-        await loadOrders();
-        await loadLogs();
+        $("orders-heading").textContent = "Pedidos";
+        $("btn-create-order").textContent = "Pedido";
       }
     }
 
-    async function unlockClean() {
-      const username = document.getElementById("cleanUser").value;
-      const password = document.getElementById("cleanPass").value;
-      const res = await fetch("/mode/clean-login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
+    async function loadVersionInfo(ver) {
+      const r = await fetch(`/api/version`, { headers: { "X-Lab-Version": ver } });
+      const d = await r.json();
+      state.version = d.active_version || ver;
+      state.flags = d.flags || {};
+      $("version-select").value = state.version;
+      const c = d.counts || { critical: 0, high: 0, medium: 0, low: 0 };
+      $("version-summary").textContent =
+        `${state.version} | Total: ${d.total_errors} (C:${c.critical} A:${c.high} M:${c.medium} B:${c.low})`;
+      applyVersionVisualFlags();
+      await refreshLastApi();
+    }
+
+    function updateSessionUI() {
+      if (state.user) {
+        $("current-user-label").textContent = `${state.user.username} (${state.user.role})`;
+        $("login-form-box").classList.add("hidden");
+        $("logged-in-box").classList.remove("hidden");
+        $("login-active-user").textContent = `${state.user.username} (${state.user.email})`;
+        $("login-active-role").textContent = `Rol: ${state.user.role}`;
+      } else {
+        $("current-user-label").textContent = "Usuario: Invitado";
+        $("login-form-box").classList.remove("hidden");
+        $("logged-in-box").classList.add("hidden");
+        $("session-timer-badge").textContent = "Sesión: --";
+      }
+    }
+
+    function applyRolePermissions() {
+      const role = state.user?.role || null;
+      const tabButtons = document.querySelectorAll("nav.tabs .tab-btn");
+
+      tabButtons.forEach((btn) => {
+        const tab = btn.dataset.tab;
+        btn.disabled = false;
+        btn.classList.remove("hidden");
+
+        if (!role) {
+          if (tab !== "login") btn.disabled = true;
+          if (tab === "admin-db" || tab === "admin-synthetic") btn.classList.add("hidden");
+          return;
+        }
+
+        if (role === "viewer" || role === "cliente") {
+          if (tab === "admin-db" || tab === "admin-synthetic") btn.classList.add("hidden");
+        } else if (role === "admin") {
+          btn.classList.remove("hidden");
+        }
       });
-      const data = await res.json();
-      showApi(res.status, data);
-      if (res.ok) {
-        cleanToken = data.clean_token;
-        labMode = "clean";
-        syncUiState();
-        if (currentUser) {
-          await loadOrders();
-          await loadLogs();
+
+      const isAdmin = role === "admin";
+      $("admin-users-section").classList.toggle("hidden", !isAdmin);
+      $("admin-order-owner-box").classList.toggle("hidden", !isAdmin);
+
+      const viewerCanModify = role === "viewer" && Boolean(state.flags.viewer_can_modify);
+      const canCreate = role === "admin" || role === "cliente" || viewerCanModify;
+      $("btn-create-order").disabled = !canCreate;
+      $("btn-save-profile").disabled = role === "viewer" && !viewerCanModify;
+    }
+
+    function switchTab(tabName) {
+      const btn = document.querySelector(`nav.tabs .tab-btn[data-tab="${tabName}"]`);
+      if (btn && btn.disabled) return;
+
+      document.querySelectorAll("nav.tabs .tab-btn").forEach((b) => {
+        b.classList.toggle("active", b.dataset.tab === tabName);
+      });
+      document.querySelectorAll("main > section.card").forEach((sec) => {
+        sec.classList.toggle("hidden", sec.id !== `tab-${tabName}`);
+      });
+
+      if (!state.token) return;
+      if (tabName === "profile") loadProfileTab();
+      if (tabName === "orders") loadOrdersTab();
+      if (tabName === "traceability") loadTracesTab();
+      if (tabName === "admin-db") loadAdminDbTab(state.currentDbTable);
+      if (tabName === "admin-synthetic") loadAdminSettings();
+    }
+
+    setInterval(() => {
+      if (!state.token || !state.user) return;
+      if (state.flags.session_no_timeout) {
+        $("session-timer-badge").textContent = "Sesión: Sin caducidad (flag)";
+        return;
+      }
+      const elapsedSec = Math.floor((Date.now() - state.lastActivity) / 1000);
+      const remaining = Math.max(0, state.timeoutSec - elapsedSec);
+      $("session-timer-badge").textContent = `Sesión caduca en: ${remaining}s`;
+      if (remaining <= 0) {
+        handleSessionExpired("La sesión ha caducado por inactividad");
+      }
+    }, 1000);
+
+    ["click", "keydown", "mousemove"].forEach((ev) => {
+      document.addEventListener(ev, () => { state.lastActivity = Date.now(); });
+    });
+
+    $("btn-theme-toggle").addEventListener("click", () => {
+      const next = document.body.classList.contains("light-mode") ? "dark" : "light";
+      applyTheme(next);
+    });
+
+    $("version-select").addEventListener("change", async (e) => {
+      const ver = e.target.value;
+      await fetch(`/api/version/${ver}`, { method: "POST", headers: headers() });
+      await loadVersionInfo(ver);
+      showAlert(`Versión cambiada a ${ver}`);
+    });
+
+    document.querySelectorAll("nav.tabs .tab-btn").forEach((btn) => {
+      btn.addEventListener("click", () => switchTab(btn.dataset.tab));
+    });
+
+    $("btn-login").addEventListener("click", async () => {
+      const res = await api("/api/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ usuario: $("login-user").value, password: $("login-pass").value }),
+      });
+      if (!res.ok) {
+        showAlert(res.data?.detail?.error || res.data?.error || "Error de autenticación", true);
+        return;
+      }
+      state.token = res.data.token;
+      state.user = res.data.user;
+      state.timeoutSec = res.data.session_timeout_seconds || 60;
+      state.lastActivity = Date.now();
+      updateSessionUI();
+      applyRolePermissions();
+      showAlert(`Bienvenido, ${state.user.username}`);
+      switchTab("profile");
+    });
+
+    $("btn-logout").addEventListener("click", async () => {
+      await api("/api/auth/logout", { method: "POST" });
+      state.token = null;
+      state.user = null;
+      updateSessionUI();
+      applyRolePermissions();
+      switchTab("login");
+      showAlert("Sesión cerrada");
+    });
+
+    async function loadProfileTab() {
+      const res = await api("/api/users/me");
+      if (res.ok && res.data?.user) {
+        const u = res.data.user;
+        $("prof-correo").value = u.email || "";
+        $("prof-ciudad").value = u.city || "";
+        $("prof-telefono").value = u.phone || "";
+        $("prof-rgpd").checked = Boolean(u.rgpd_accepted);
+      }
+      if (state.user?.role === "admin") {
+        const uRes = await api("/api/users");
+        if (uRes.ok && uRes.data?.users) {
+          renderUsersAdminTable(uRes.data.users);
         }
       }
     }
 
-    function switchToBuggy() {
-      labMode = "buggy";
-      syncUiState();
-      if (currentUser) {
-        loadOrders();
-        loadLogs();
+    function renderUsersAdminTable(users) {
+      let html = `<table><thead><tr>
+        <th>ID</th><th>Usuario</th><th>Correo</th><th>Rol</th><th>Ciudad</th><th>Teléfono</th><th>RGPD</th><th>Intentos</th><th>Estado</th><th>Acción</th>
+      </tr></thead><tbody>`;
+      for (const u of users) {
+        const statusTxt = u.locked ? `<strong style="color:#f87171;">BLOQUEADO</strong>` : "Activo";
+        const unlockBtn = u.locked
+          ? `<button class="btn ok" onclick="unlockUserById(${u.id})">Desbloquear</button>`
+          : "-";
+        html += `<tr>
+          <td>${u.id}</td><td>${u.username}</td><td>${u.email}</td><td>${u.role}</td>
+          <td>${u.city}</td><td>${u.phone}</td><td>${u.rgpd_accepted ? "Sí" : "No"}</td>
+          <td>${u.failed_attempts}</td><td>${statusTxt}</td><td>${unlockBtn}</td>
+        </tr>`;
       }
+      html += "</tbody></table>";
+      $("admin-users-table").innerHTML = html;
     }
 
-    async function doLogin() {
-      const email = document.getElementById("loginEmail").value;
-      const password = document.getElementById("loginPass").value;
-      const res = await fetch("/login", {
-        method: "POST",
-        headers: headers(),
-        body: JSON.stringify({ email, password }),
+    window.unlockUserById = async (userId) => {
+      const res = await api(`/api/users/${userId}/unlock`, { method: "POST" });
+      if (!res.ok) {
+        showAlert(res.data?.detail?.error || res.data?.error || "No se pudo desbloquear", true);
+        return;
+      }
+      showAlert(`Usuario #${userId} desbloqueado`);
+      loadProfileTab();
+    };
+
+    $("btn-save-profile").addEventListener("click", async () => {
+      const res = await api("/api/users/me", {
+        method: "PUT",
+        body: JSON.stringify({
+          correo: $("prof-correo").value,
+          ciudad: $("prof-ciudad").value,
+          telefono: $("prof-telefono").value,
+          acepta_rgpd: $("prof-rgpd").checked,
+        }),
       });
-      const data = await res.json();
-      showApi(res.status, data);
-      if (res.ok) {
-        currentUser = { email: data.email, role: data.role };
-        sessionToken = data.session_token;
-        syncUiState();
-        await loadOrders();
-        await loadLogs();
+      if (!res.ok) {
+        showAlert(res.data?.detail?.error || res.data?.error || "Error al guardar datos", true);
+        return;
       }
-    }
+      showAlert("Datos de usuario guardados");
+    });
 
-    async function doLogout() {
-      const res = await fetch("/logout", { method: "POST", headers: headers() });
-      const data = await res.json();
-      showApi(res.status, data);
-      currentUser = null;
-      sessionToken = null;
-      ordersCache = [];
-      logsCache = [];
-      document.getElementById("ordersBody").innerHTML = "";
-      document.getElementById("logsBody").innerHTML = "";
-      syncUiState();
-    }
-
-    async function resetLab() {
-      const res = await fetch("/reset-lab", { method: "POST", headers: headers() });
-      const data = await res.json();
-      showApi(res.status, data);
+    $("btn-perf-check").addEventListener("click", async () => {
+      showAlert("Consultando endpoint de rendimiento...");
+      const res = await api("/api/performance/check", { method: "POST" });
       if (res.ok) {
-        await loadOrders();
-        await loadLogs();
+        showAlert(`Respuesta recibida en ${res.data.elapsed_seconds}s`);
       }
+    });
+
+    async function loadOrdersTab() {
+      const res = await api("/api/orders");
+      if (!res.ok) return;
+      const orders = res.data?.orders || [];
+      const role = state.user?.role;
+      const viewerCanMod = role === "viewer" && Boolean(state.flags.viewer_can_modify);
+
+      let html = `<table><thead><tr>
+        <th>ID</th><th>Propietario ID</th><th>Concepto</th><th>Importe</th><th>Estado</th><th>Acciones</th>
+      </tr></thead><tbody>`;
+
+      for (const o of orders) {
+        const actions = [];
+        if (role === "admin" || viewerCanMod) {
+          if (o.estado === "Creado" || o.estado === "En proceso") {
+            actions.push(`<button class="btn ok" onclick="changeOrderStatus(${o.id}, 'Aprobado')">Aprobar</button>`);
+            actions.push(`<button class="btn danger" onclick="changeOrderStatus(${o.id}, 'Rechazado')">Rechazar</button>`);
+            actions.push(`<button class="btn secondary" onclick="deleteOrderById(${o.id})">Eliminar</button>`);
+          } else if (o.estado === "Aprobado") {
+            actions.push(`<button class="btn danger" onclick="changeOrderStatus(${o.id}, 'Rechazado')">Rechazar</button>`);
+            actions.push(`<button class="btn" onclick="changeOrderStatus(${o.id}, 'Entregado')">Entregado</button>`);
+            actions.push(`<button class="btn secondary" onclick="deleteOrderById(${o.id})">Eliminar</button>`);
+          } else {
+            actions.push(`<button class="btn secondary" onclick="deleteOrderById(${o.id})">Eliminar</button>`);
+          }
+        } else if (role === "cliente") {
+          if ((o.estado === "Creado" || o.estado === "En proceso") && !state.flags.broken_order_workflow) {
+            actions.push(`<button class="btn secondary" onclick="deleteOrderById(${o.id})">Eliminar</button>`);
+          }
+          if (o.estado === "Aprobado") {
+            actions.push(`<span style="color:var(--muted); font-size:0.8rem;">Aprobado (cliente no puede rechazar)</span>`);
+          }
+        }
+
+        html += `<tr>
+          <td>${o.id}</td><td>${o.owner_id}</td><td>${o.titulo}</td><td>${o.importe} €</td>
+          <td><strong>${o.estado}</strong></td><td><div class="row">${actions.join("")}</div></td>
+        </tr>`;
+      }
+      html += "</tbody></table>";
+      $("orders-table-container").innerHTML = html;
     }
 
-    function fillGoodData() {
-      document.getElementById("custEmail").value = "cliente1@ejemplo.com";
-      document.getElementById("amount").value = "200";
-      document.getElementById("discount").value = "10";
-      document.getElementById("consent").value = "1";
-      document.getElementById("notes").value = "Pedido estándar válido sin datos personales";
-    }
-
-    function fillBadData() {
-      document.getElementById("custEmail").value = "correo-invalido-sin-arroba";
-      document.getElementById("amount").value = "-120";
-      document.getElementById("discount").value = "140";
-      document.getElementById("consent").value = "9";
-      document.getElementById("notes").value = "Llamar al 600123456, DNI 12345678A <script>alert(1)<\/script>";
-    }
-
-    function orderPayload() {
-      return {
-        customer_email: document.getElementById("custEmail").value,
-        amount: parseFloat(document.getElementById("amount").value || "0"),
-        discount_pct: parseFloat(document.getElementById("discount").value || "0"),
-        marketing_consent: parseInt(document.getElementById("consent").value || "0", 10),
-        notes: document.getElementById("notes").value,
+    $("btn-create-order").addEventListener("click", async () => {
+      const ownerRaw = $("order-owner-id").value;
+      const body = {
+        titulo: $("order-title").value,
+        importe: parseFloat($("order-amount").value || "0"),
+        cliente_id: ownerRaw ? parseInt(ownerRaw, 10) : null,
       };
-    }
-
-    async function checkRisk() {
-      const res = await fetch("/orders/ai-risk-check", {
-        method: "POST",
-        headers: headers(),
-        body: JSON.stringify(orderPayload()),
-      });
-      const data = await res.json();
-      showApi(res.status, data);
-      await loadLogs();
-    }
-
-    async function createOrder() {
-      const res = await fetch("/orders", {
-        method: "POST",
-        headers: headers(),
-        body: JSON.stringify(orderPayload()),
-      });
-      const data = await res.json();
-      showApi(res.status, data);
-      await loadOrders();
-      await loadLogs();
-    }
-
-    function escapeHtml(value) {
-      return String(value == null ? "" : value)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;");
-    }
-
-    function renderOrders() {
-      const tbody = document.getElementById("ordersBody");
-      tbody.innerHTML = ordersCache.map((o) => {
-        const rgpdLabel = o.marketing_consent === 1 ? "Sí (1)" : "No (" + o.marketing_consent + ")";
-        return (
-          "<tr>" +
-          "<td><strong>" + escapeHtml(o.order_code) + "</strong></td>" +
-          "<td>" + escapeHtml(o.customer_email) + "</td>" +
-          "<td>" + escapeHtml(o.amount) + "</td>" +
-          "<td>" + escapeHtml(o.discount_pct) + "%</td>" +
-          "<td><strong>" + escapeHtml(o.final_amount) + "</strong></td>" +
-          "<td>" + escapeHtml(rgpdLabel) + "</td>" +
-          "<td>" + escapeHtml(o.status) + "</td>" +
-          "<td>" + escapeHtml(o.notes || "") + "</td>" +
-          "<td><div class='row-btns' style='margin:0;'>" +
-          "<button class='ok' style='margin:0;padding:4px 8px;' onclick=\"setStatus(" + o.id + ", 'approved')\">Aprobar</button>" +
-          "<button class='secondary' style='margin:0;padding:4px 8px;' onclick=\"setStatus(" + o.id + ", 'cancelled')\">Cancelar</button>" +
-          "<button class='danger' style='margin:0;padding:4px 8px;' onclick=\"delOrder(" + o.id + ")\">Borrar</button>" +
-          "</div></td>" +
-          "</tr>"
-        );
-      }).join("");
-    }
-
-    async function loadOrders() {
-      const res = await fetch("/orders", { headers: headers() });
-      const data = await res.json();
-      if (res.ok) {
-        ordersCache = data.orders || [];
-        renderOrders();
-      } else {
-        showApi(res.status, data);
+      const res = await api("/api/orders", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) {
+        showAlert(res.data?.detail?.error || res.data?.error || "No se pudo crear el pedido", true);
+        return;
       }
-    }
+      showAlert(`Pedido #${res.data.order.id} creado`);
+      loadOrdersTab();
+    });
 
-    function sortOrders(field) {
-      orderSortAsc = !orderSortAsc;
-      ordersCache.sort((a, b) => {
-        if (typeof a[field] === "number") return orderSortAsc ? a[field] - b[field] : b[field] - a[field];
-        return orderSortAsc
-          ? String(a[field]).localeCompare(String(b[field]))
-          : String(b[field]).localeCompare(String(a[field]));
-      });
-      renderOrders();
-    }
-
-    async function setStatus(orderId, status) {
-      const res = await fetch("/orders/" + orderId + "/status", {
+    window.changeOrderStatus = async (orderId, nuevoEstado) => {
+      const res = await api(`/api/orders/${orderId}/status`, {
         method: "PATCH",
-        headers: headers(),
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ nuevo_estado: nuevoEstado }),
       });
-      const data = await res.json();
-      showApi(res.status, data);
-      await loadOrders();
-      await loadLogs();
+      if (!res.ok) {
+        showAlert(res.data?.detail?.error || res.data?.error || "Transición no permitida", true);
+        return;
+      }
+      showAlert(`Pedido #${orderId} -> ${nuevoEstado}`);
+      loadOrdersTab();
+    };
+
+    window.deleteOrderById = async (orderId) => {
+      const res = await api(`/api/orders/${orderId}`, { method: "DELETE" });
+      if (!res.ok) {
+        showAlert(res.data?.detail?.error || res.data?.error || "No se pudo eliminar el pedido", true);
+        return;
+      }
+      showAlert(`Pedido #${orderId} eliminado`);
+      loadOrdersTab();
+    };
+
+    async function loadTracesTab() {
+      const res = await api("/api/traceability");
+      if (!res.ok) return;
+      const rows = res.data?.traces || [];
+      let html = `<table><thead><tr><th>ID</th><th>Fecha/Hora</th><th>Actor</th><th>Rol</th><th>Acción</th><th>Detalle</th></tr></thead><tbody>`;
+      for (const t of rows) {
+        html += `<tr><td>${t.id}</td><td>${t.timestamp}</td><td>${t.actor}</td><td>${t.role}</td><td>${t.action}</td><td>${t.detail}</td></tr>`;
+      }
+      html += "</tbody></table>";
+      $("traceability-table-container").innerHTML = html;
     }
 
-    async function delOrder(orderId) {
-      const res = await fetch("/orders/" + orderId, { method: "DELETE", headers: headers() });
-      const data = await res.json();
-      showApi(res.status, data);
-      await loadOrders();
-      await loadLogs();
+    async function loadAdminDbTab(tableName) {
+      state.currentDbTable = tableName;
+      const res = await api("/api/admin/tables");
+      if (!res.ok) return;
+      const list = res.data?.[tableName] || [];
+      if (!list.length) {
+        $("admin-db-grid").innerHTML = "<p>Sin registros en esta tabla.</p>";
+        return;
+      }
+      const cols = Object.keys(list[0]);
+      let html = `<table><thead><tr>${cols.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>`;
+      for (const row of list) {
+        html += `<tr>${cols.map((c) => `<td>${row[c] ?? ""}</td>`).join("")}</tr>`;
+      }
+      html += "</tbody></table>";
+      $("admin-db-grid").innerHTML = html;
     }
 
-    function renderLogs() {
-      const tbody = document.getElementById("logsBody");
-      tbody.innerHTML = logsCache.map((l) => (
-        "<tr>" +
-        "<td><strong>" + escapeHtml(l.trace_code) + "</strong></td>" +
-        "<td>" + escapeHtml(l.created_at) + "</td>" +
-        "<td>" + escapeHtml(l.test_cycle || "-") + "</td>" +
-        "<td>" + escapeHtml(l.lab_mode) + "</td>" +
-        "<td>" + escapeHtml(l.actor_email) + "</td>" +
-        "<td>" + escapeHtml(l.role) + "</td>" +
-        "<td>" + escapeHtml(l.action) + "</td>" +
-        "<td>" + escapeHtml(l.status_code) + "</td>" +
-        "<td>" + escapeHtml(l.detail) + "</td>" +
-        "</tr>"
-      )).join("");
-    }
+    document.querySelectorAll("button[data-dbtable]").forEach((btn) => {
+      btn.addEventListener("click", () => loadAdminDbTab(btn.dataset.dbtable));
+    });
 
-    async function loadLogs() {
-      const limit = document.getElementById("logLimit").value;
-      const actor = encodeURIComponent(document.getElementById("actorFilter").value || "");
-      const res = await fetch("/audit-logs?limit=" + limit + "&actor_filter=" + actor, { headers: headers() });
-      const data = await res.json();
-      if (res.ok) {
-        logsCache = data.logs || [];
-        renderLogs();
-      } else {
-        showApi(res.status, data);
+    async function loadAdminSettings() {
+      const res = await api("/api/admin/tables");
+      if (res.ok && res.data?.settings) {
+        $("cfg-timeout").value = res.data.settings.session_timeout_seconds;
+        $("cfg-attempts").value = res.data.settings.max_failed_attempts;
       }
     }
 
-    function sortLogs(field) {
-      logSortAsc = !logSortAsc;
-      logsCache.sort((a, b) => {
-        if (typeof a[field] === "number") return logSortAsc ? a[field] - b[field] : b[field] - a[field];
-        return logSortAsc
-          ? String(a[field]).localeCompare(String(b[field]))
-          : String(b[field]).localeCompare(String(a[field]));
+    $("btn-save-settings").addEventListener("click", async () => {
+      const timeout = parseInt($("cfg-timeout").value, 10);
+      const attempts = parseInt($("cfg-attempts").value, 10);
+      const res = await api("/api/admin/settings", {
+        method: "PUT",
+        body: JSON.stringify({ session_timeout_seconds: timeout, max_failed_attempts: attempts }),
       });
-      renderLogs();
-    }
+      if (!res.ok) {
+        showAlert(res.data?.detail?.error || res.data?.error || "Error guardando parámetros", true);
+        return;
+      }
+      state.timeoutSec = timeout;
+      state.lastActivity = Date.now();
+      showAlert("Parámetros actualizados");
+    });
 
-    async function inspectDb() {
-      const res = await fetch("/db/inspect?sample_limit=8", { headers: headers() });
-      const data = await res.json();
-      showApi(res.status, data);
-      document.getElementById("dbOutput").textContent = JSON.stringify(data, null, 2);
-      await loadLogs();
-    }
-
-    async function generateSynthetic() {
-      const profile = document.getElementById("synthProfile").value;
-      const count = parseInt(document.getElementById("synthCount").value, 10);
-      const res = await fetch("/test-data/generate", {
+    $("btn-gen-synthetic").addEventListener("click", async () => {
+      const res = await api("/api/admin/synthetic-data", {
         method: "POST",
-        headers: headers(),
-        body: JSON.stringify({ profile, count }),
+        body: JSON.stringify({
+          cantidad_pedidos: parseInt($("synth-orders").value, 10),
+          cantidad_usuarios_extra: parseInt($("synth-users").value, 10),
+          calidad: $("synth-quality").value,
+        }),
       });
-      const data = await res.json();
-      showApi(res.status, data);
-      if (res.ok) {
-        await loadOrders();
-        await loadLogs();
+      if (!res.ok) {
+        showAlert(res.data?.detail?.error || res.data?.error || "Error generando datos", true);
+        return;
       }
-    }
+      showAlert(`Generados ${res.data.created_orders} pedidos y ${res.data.created_users} usuarios (${res.data.calidad})`);
+    });
 
-    syncUiState();
+    $("btn-reset-data").addEventListener("click", async () => {
+      const res = await api("/api/admin/reset", { method: "POST" });
+      if (!res.ok) {
+        showAlert(res.data?.detail?.error || res.data?.error || "Error reiniciando datos", true);
+        return;
+      }
+      showAlert("Datos reiniciados a los 50 usuarios base");
+    });
+
+    $("btn-export-data").addEventListener("click", async () => {
+      const res = await api("/api/admin/export");
+      if (!res.ok) {
+        showAlert(res.data?.detail?.error || res.data?.error || "Error exportando datos", true);
+        return;
+      }
+      const blob = new Blob([JSON.stringify(res.data.snapshot, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `lab_qa_risk_${state.version}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showAlert("Fichero de datos guardado");
+    });
+
+    $("file-import-data").addEventListener("change", async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const text = await file.text();
+      let parsed;
+      try { parsed = JSON.parse(text); } catch (_) {
+        showAlert("El fichero no es un JSON válido", true);
+        return;
+      }
+      const res = await api("/api/admin/import", {
+        method: "POST",
+        body: JSON.stringify({ snapshot: parsed }),
+      });
+      if (!res.ok) {
+        showAlert(res.data?.detail?.error || res.data?.error || "Error cargando fichero", true);
+        return;
+      }
+      showAlert("Datos cargados desde fichero");
+      e.target.value = "";
+    });
+
+    $("btn-refresh-traces").addEventListener("click", loadTracesTab);
+    $("btn-refresh-last-api").addEventListener("click", refreshLastApi);
+
+    (async function init() {
+      initTheme();
+      updateSessionUI();
+      applyRolePermissions();
+      await loadVersionInfo(state.version);
+    })();
   </script>
 </body>
 </html>
